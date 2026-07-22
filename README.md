@@ -8,11 +8,11 @@ Currently working on real-time sync. Core editor and room routing are in place; 
 
 ## Tech stack
 
-- Next.js 14 (App Router), TypeScript, Tailwind CSS
+- Vite + React 19, TypeScript, Tailwind CSS
 - Monaco Editor (the VS Code editor, in-browser)
-- Yjs (CRDTs) + y-webrtc for peer-to-peer sync
-- Node.js + Socket.io signaling server (WebRTC handshake only, no data ever touches it)
-- Cosine similarity matchmaking on skill-profile vectors (planned)
+- Yjs (CRDTs) + y-webrtc for peer-to-peer sync (not wired in yet — editor currently uses local state only)
+- Node.js + Socket.io signaling server (planned)
+- Cosine similarity matchmaking (planned)
 - Google Gemini API for inline code hints (planned)
 
 ## How it works

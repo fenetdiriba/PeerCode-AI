@@ -1,6 +1,0 @@
-{
-  "name": "PeerCode AI",
-  "description": "A real-time collaborative code editor with smart AI assistance and instant room-sharing capabilities.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

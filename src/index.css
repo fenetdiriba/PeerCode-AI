@@ -1,0 +1,73 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-brand-bg: #0d0d0d;
+  --color-brand-surface: #1a1a1a;
+  --color-brand-surface-light: #242424;
+  --color-brand-border: rgba(255, 255, 255, 0.1);
+  --color-brand-text: #eaeaea;
+  --color-brand-text-muted: #a0a0a0;
+  
+  --color-editor-bg: #121212;
+  --color-editor-line: #181818;
+  --color-editor-cursor: #3b82f6;
+  --color-editor-selection: rgba(59, 130, 246, 0.15);
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0d0d0d;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2a2a2a;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3a3a3a;
+}
+
+body {
+  background-color: var(--color-brand-bg);
+  color: var(--color-brand-text);
+  font-family: var(--font-sans);
+  overflow-x: hidden;
+}
+
+/* Geometric Grid Background pattern */
+.geometric-grid {
+  position: relative;
+}
+
+.geometric-grid::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.04;
+  background-image: 
+    linear-gradient(rgba(255, 255, 255, 0.8) 1px, transparent 1px), 
+    linear-gradient(90deg, rgba(255, 255, 255, 0.8) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+/* Code Editor highlighting helper styles */
+.syntax-keyword { color: #3b82f6; font-weight: 500; }
+.syntax-string { color: #10b981; }
+.syntax-comment { color: #737373; font-style: italic; }
+.syntax-function { color: #ec4899; }
+.syntax-number { color: #f59e0b; }
+.syntax-operator { color: #a855f7; }
+.syntax-def { color: #ec4899; }
+.syntax-text { color: #e5e7eb; }
+

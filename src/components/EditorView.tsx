@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Code2, ArrowLeft, Users, Terminal, Sparkles, Share2, Check, 
@@ -6,6 +6,11 @@ import {
   AlertCircle, HelpCircle, FileJson, Layers, CheckCircle2, Copy
 } from 'lucide-react';
 import Editor from '@monaco-editor/react';
+import * as Y from 'yjs';
+import { WebrtcProvider } from 'y-webrtc';
+import { MonacoBinding } from 'y-monaco';
+import type { Awareness } from 'y-protocols/awareness';
+import type * as Monaco from 'monaco-editor';
 import { Peer, ChatMessage, CodeFile } from '../types';
 
 interface EditorViewProps {
@@ -91,18 +96,13 @@ if __name__ == "__main__":
 export default function EditorView({ roomId, onGoBack, onOpenScaffold }: EditorViewProps) {
   const [selectedLanguage, setSelectedLanguage] = useState<'typescript' | 'html' | 'python'>('typescript');
   const [activeFile, setActiveFile] = useState('index.ts');
-  const [fileContents, setFileContents] = useState<Record<string, string>>(BOILERPLATE_CODES.typescript);
   const [logs, setLogs] = useState<Array<{ text: string; type: 'system' | 'success' | 'error' | 'user' }>>([
     { text: '[system] collaborative secure session channel configured successfully', type: 'system' },
-    { text: `[system] join active sandbox on room ID: ${roomId.toUpperCase()}`, type: 'success' },
-    { text: '💡 Click "Simulate Peer Typing" to see collaborative edits live!', type: 'system' }
+    { text: `[system] join active sandbox on room ID: ${roomId.toUpperCase()}`, type: 'success' }
   ]);
   
   // Real-time peer list
-  const [peers, setPeers] = useState<Peer[]>([
-    { id: '1', name: 'You (Owner)', avatarColor: 'bg-blue-500', isTyping: false },
-    { id: 'ai', name: 'PeerCode AI Bot', avatarColor: 'bg-purple-600', isTyping: false }
-  ]);
+  const [peers, setPeers] = useState<Peer[]>([]);
   
   // Real-time Chat state
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
@@ -112,17 +112,144 @@ export default function EditorView({ roomId, onGoBack, onOpenScaffold }: EditorV
   const chatBottomRef = useRef<HTMLDivElement>(null);
   
   const [copiedLink, setCopiedLink] = useState(false);
-  const [isPeerSimulating, setIsPeerSimulating] = useState(false);
   const [isAIReviewing, setIsAIReviewing] = useState(false);
-  const typingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const yDocRef = useRef<Y.Doc | null>(null);
+  const providerRef = useRef<WebrtcProvider | null>(null);
+  const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
+  const monacoRef = useRef<typeof Monaco | null>(null);
+  const bindingRef = useRef<MonacoBinding | null>(null);
+  const peerIdsRef = useRef<Set<number>>(new Set());
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const editorChangeListenerRef = useRef<Monaco.IDisposable | null>(null);
+
+  const getLanguageId = (language: 'typescript' | 'html' | 'python') => {
+    if (language === 'typescript') return 'typescript';
+    if (language === 'html') return 'html';
+    return 'python';
+  };
+
+  const getPeerColor = (clientId: number) => {
+    const palette = ['bg-blue-500', 'bg-emerald-500', 'bg-purple-600', 'bg-amber-500', 'bg-rose-500'];
+    return palette[Math.abs(clientId) % palette.length];
+  };
+
+  const syncPeersFromAwareness = useCallback((awareness: Awareness) => {
+    const syncedPeers: Peer[] = Array.from(awareness.getStates().entries()).map(([clientId, state]) => {
+      const user = state.user as { name?: string; avatarColor?: string } | undefined;
+      return {
+        id: String(clientId),
+        name: user?.name || `Peer ${clientId}`,
+        avatarColor: user?.avatarColor || getPeerColor(clientId),
+        isTyping: Boolean(state.typing)
+      };
+    });
+    setPeers(syncedPeers);
+  }, []);
+
+  const getYText = useCallback((language: 'typescript' | 'html' | 'python', fileName: string) => {
+    const doc = yDocRef.current;
+    if (!doc) return null;
+
+    const textKey = `${roomId}:${language}:${fileName}`;
+    const yText = doc.getText(textKey);
+    if (yText.length === 0) {
+      const initial = BOILERPLATE_CODES[language][fileName] || '';
+      if (initial) {
+        doc.transact(() => {
+          yText.insert(0, initial);
+        });
+      }
+    }
+    return yText;
+  }, [roomId]);
+
+  const bindMonacoModel = useCallback(() => {
+    const provider = providerRef.current;
+    const editor = editorRef.current;
+    const monaco = monacoRef.current;
+    if (!provider || !editor || !monaco) return;
+
+    const languageId = getLanguageId(selectedLanguage);
+    const modelUri = monaco.Uri.parse(`inmemory://peercode/${roomId}/${selectedLanguage}/${activeFile}`);
+    let model = monaco.editor.getModel(modelUri);
+
+    if (!model) {
+      model = monaco.editor.createModel('', languageId, modelUri);
+    } else {
+      monaco.editor.setModelLanguage(model, languageId);
+    }
+
+    editor.setModel(model);
+    bindingRef.current?.destroy();
+
+    const yText = getYText(selectedLanguage, activeFile);
+    if (yText) {
+      bindingRef.current = new MonacoBinding(yText, model, new Set([editor]), provider.awareness);
+    }
+  }, [activeFile, getYText, roomId, selectedLanguage]);
 
   // Synchronize boilerplate code when language changes
   useEffect(() => {
-    const files = BOILERPLATE_CODES[selectedLanguage];
-    setFileContents(files);
-    const firstFile = Object.keys(files)[0];
+    const firstFile = Object.keys(BOILERPLATE_CODES[selectedLanguage])[0];
     setActiveFile(firstFile);
   }, [selectedLanguage]);
+
+  useEffect(() => {
+    const doc = new Y.Doc();
+    const provider = new WebrtcProvider(roomId, doc, {
+      signaling: ['wss://signaling.yjs.dev']
+    });
+
+    yDocRef.current = doc;
+    providerRef.current = provider;
+
+    const awareness = provider.awareness;
+    awareness.setLocalStateField('user', {
+      name: 'You (Owner)',
+      avatarColor: 'bg-blue-500'
+    });
+    awareness.setLocalStateField('typing', false);
+
+    peerIdsRef.current = new Set<number>([awareness.clientID]);
+
+    const handleAwarenessUpdate = ({ added, removed }: { added: number[]; removed: number[] }) => {
+      added
+        .filter((clientId) => clientId !== awareness.clientID && !peerIdsRef.current.has(clientId))
+        .forEach((clientId) => {
+          peerIdsRef.current.add(clientId);
+          console.log(`[peer] connected: ${clientId}`);
+        });
+
+      removed
+        .filter((clientId) => clientId !== awareness.clientID)
+        .forEach((clientId) => {
+          peerIdsRef.current.delete(clientId);
+          console.log(`[peer] disconnected: ${clientId}`);
+        });
+
+      syncPeersFromAwareness(awareness);
+    };
+
+    awareness.on('update', handleAwarenessUpdate);
+    syncPeersFromAwareness(awareness);
+
+    return () => {
+      if (typingTimerRef.current) {
+        clearTimeout(typingTimerRef.current);
+      }
+      editorChangeListenerRef.current?.dispose();
+      bindingRef.current?.destroy();
+      awareness.off('update', handleAwarenessUpdate);
+      provider.destroy();
+      doc.destroy();
+      providerRef.current = null;
+      yDocRef.current = null;
+    };
+  }, [roomId, syncPeersFromAwareness]);
+
+  useEffect(() => {
+    bindMonacoModel();
+  }, [bindMonacoModel]);
 
   // Keep chat scrolled
   useEffect(() => {
@@ -137,25 +264,37 @@ export default function EditorView({ roomId, onGoBack, onOpenScaffold }: EditorV
     setTimeout(() => setCopiedLink(false), 2000);
   };
 
-  const handleCodeChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setFileContents(prev => ({
-      ...prev,
-      [activeFile]: e.target.value
-    }));
+  const handleEditorMount = (editor: Monaco.editor.IStandaloneCodeEditor, monaco: typeof Monaco) => {
+    editorRef.current = editor;
+    monacoRef.current = monaco;
+
+    bindMonacoModel();
+
+    editorChangeListenerRef.current?.dispose();
+    editorChangeListenerRef.current = editor.onDidChangeModelContent(() => {
+      const awareness = providerRef.current?.awareness;
+      if (!awareness) return;
+
+      awareness.setLocalStateField('typing', true);
+      if (typingTimerRef.current) {
+        clearTimeout(typingTimerRef.current);
+      }
+      typingTimerRef.current = setTimeout(() => {
+        awareness.setLocalStateField('typing', false);
+      }, 800);
+    });
   };
 
-  const handleMonacoChange = (val: string | undefined) => {
-    setFileContents(prev => ({
-      ...prev,
-      [activeFile]: val || ''
-    }));
+  const getActiveCode = () => {
+    const yText = getYText(selectedLanguage, activeFile);
+    return yText ? yText.toString() : '';
   };
 
   const executeCode = () => {
     setLogs(prev => [...prev, { text: `[runner] compiling and executing ${activeFile}...`, type: 'system' }]);
     
     setTimeout(() => {
-      const code = fileContents[activeFile] || '';
+      const code = getActiveCode();
       
       if (selectedLanguage === 'typescript') {
         if (code.includes('processActiveDeveloper') && code.includes('console.log')) {
@@ -216,61 +355,6 @@ export default function EditorView({ roomId, onGoBack, onOpenScaffold }: EditorV
     }
   };
 
-  // Trigger Collaborative Simulation (A Peer Joins and Types Code)
-  const togglePeerSimulation = () => {
-    if (isPeerSimulating) {
-      if (typingTimerRef.current) clearInterval(typingTimerRef.current);
-      setIsPeerSimulating(false);
-      setPeers(prev => prev.filter(p => p.id !== 'sophia'));
-      setLogs(prev => [...prev, { text: '[system] Peer Sophia has disconnected', type: 'system' }]);
-      return;
-    }
-
-    setIsPeerSimulating(true);
-    
-    // Add sophia to peer list
-    const newPeer: Peer = { id: 'sophia', name: 'Sophia (Developer)', avatarColor: 'bg-emerald-500', isTyping: true };
-    setPeers(prev => [...prev, newPeer]);
-    
-    setLogs(prev => [...prev, { text: '⚡ Peer "Sophia" joined the collaborative sandbox', type: 'success' }]);
-    
-    setChatMessages(prev => [
-      ...prev,
-      { id: Date.now().toString(), sender: 'Sophia', text: 'Hey there! Let me help you add a new helper function here.', timestamp: 'Just now' }
-    ]);
-
-    // Let sophia type code line by line
-    const textToType = `\n\n// Added by Sophia:\nexport function calculateAnalytics(data: number[]): number {\n  return data.reduce((a, b) => a + b, 0);\n}`;
-    let index = 0;
-
-    typingTimerRef.current = setInterval(() => {
-      setFileContents(prev => {
-        const currentCode = prev[activeFile] || '';
-        if (index < textToType.length) {
-          const nextChar = textToType.charAt(index);
-          index++;
-          return {
-            ...prev,
-            [activeFile]: currentCode + nextChar
-          };
-        } else {
-          if (typingTimerRef.current) clearInterval(typingTimerRef.current);
-          setIsPeerSimulating(false);
-          setPeers(prevPeers => prevPeers.map(p => p.id === 'sophia' ? { ...p, isTyping: false } : p));
-          setLogs(l => [...l, { text: '[system] Sophia completed typing contribution', type: 'system' }]);
-          return prev;
-        }
-      });
-    }, 45);
-  };
-
-  // Clean up timers on unmount
-  useEffect(() => {
-    return () => {
-      if (typingTimerRef.current) clearInterval(typingTimerRef.current);
-    };
-  }, []);
-
   // AI Review Trigger
   const triggerAIReview = () => {
     setIsAIReviewing(true);
@@ -278,7 +362,7 @@ export default function EditorView({ roomId, onGoBack, onOpenScaffold }: EditorV
     
     setTimeout(() => {
       setIsAIReviewing(false);
-      const code = fileContents[activeFile] || '';
+      const code = getActiveCode();
       let reviewResult = '';
       
       if (code.includes('any')) {
@@ -382,7 +466,7 @@ export default function EditorView({ roomId, onGoBack, onOpenScaffold }: EditorV
           <div className="p-4 border-b border-brand-border flex-1">
             <span className="text-[10px] font-mono font-bold text-neutral-500 tracking-wider block uppercase mb-3">Workspace Files</span>
             <div className="space-y-1">
-              {Object.keys(fileContents).map((file) => {
+              {Object.keys(BOILERPLATE_CODES[selectedLanguage]).map((file) => {
                 const isActive = file === activeFile;
                 return (
                   <button
@@ -449,20 +533,8 @@ export default function EditorView({ roomId, onGoBack, onOpenScaffold }: EditorV
               <span className="text-[10px] font-mono text-brand-text-muted uppercase">{selectedLanguage} Sandbox</span>
             </div>
             
-            {/* Interactive Workspace Simulator Actions */}
+            {/* Interactive Workspace Actions */}
             <div className="flex items-center gap-2">
-              <button
-                onClick={togglePeerSimulation}
-                className={`px-2.5 py-1 text-[10px] rounded font-medium border transition-all ${
-                  isPeerSimulating
-                    ? 'bg-rose-600/10 border-rose-500/30 text-rose-400'
-                    : 'bg-neutral-800 hover:bg-neutral-700 border-neutral-700 text-brand-text-muted hover:text-white'
-                }`}
-                title="Toggle a mock developer typing into the file"
-              >
-                {isPeerSimulating ? 'Stop Peer Simulation' : 'Simulate Peer Typing'}
-              </button>
-
               <button
                 onClick={triggerAIReview}
                 disabled={isAIReviewing}
@@ -482,8 +554,7 @@ export default function EditorView({ roomId, onGoBack, onOpenScaffold }: EditorV
                 width="100%"
                 language={selectedLanguage === 'typescript' ? 'typescript' : selectedLanguage === 'html' ? 'html' : 'python'}
                 theme="vs-dark"
-                value={fileContents[activeFile] || ''}
-                onChange={handleMonacoChange}
+                onMount={handleEditorMount}
                 options={{
                   fontSize: 13,
                   fontFamily: "JetBrains Mono, Menlo, Monaco, monospace",
@@ -497,13 +568,6 @@ export default function EditorView({ roomId, onGoBack, onOpenScaffold }: EditorV
                   }
                 }}
               />
-              
-              {isPeerSimulating && (
-                <div className="absolute bottom-4 right-4 bg-emerald-950/90 border border-emerald-900 text-emerald-400 text-[10px] px-2.5 py-1 rounded font-sans flex items-center gap-1.5 animate-pulse shadow-xl z-20">
-                  <UserCheck className="w-3.5 h-3.5" />
-                  Sophia is contributing code...
-                </div>
-              )}
             </div>
           </div>
 

@@ -61,13 +61,26 @@ body {
   background-size: 40px 40px;
 }
 
-/* Code Editor highlighting helper styles */
-.syntax-keyword { color: #3b82f6; font-weight: 500; }
-.syntax-string { color: #10b981; }
-.syntax-comment { color: #737373; font-style: italic; }
-.syntax-function { color: #ec4899; }
-.syntax-number { color: #f59e0b; }
-.syntax-operator { color: #a855f7; }
-.syntax-def { color: #ec4899; }
-.syntax-text { color: #e5e7eb; }
+/* Remote cursors rendered by y-monaco. Per-peer colors are injected by CodeEditor. */
+.yRemoteSelectionHead {
+  position: absolute;
+  height: 100%;
+  border-left: 2px solid;
+  box-sizing: border-box;
+}
 
+.yRemoteSelectionHead::after {
+  position: absolute;
+  top: -1.25em;
+  left: -2px;
+  padding: 0 4px;
+  border-radius: 3px 3px 3px 0;
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.25em;
+  white-space: nowrap;
+  color: #0a0a0a;
+  pointer-events: none;
+  z-index: 10;
+}

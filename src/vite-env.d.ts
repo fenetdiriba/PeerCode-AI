@@ -11,6 +11,8 @@ interface ImportMetaEnv {
   readonly VITE_MATCHMAKING_URL?: string;
   /** Override: room relay base URL. Defaults to VITE_SERVER_URL + /relay. */
   readonly VITE_RELAY_URL?: string;
+  /** Override: AI hint endpoint. Defaults to VITE_SERVER_URL (as http/https) + /api/ai-hint. */
+  readonly VITE_AI_URL?: string;
 }
 
 interface ImportMeta {

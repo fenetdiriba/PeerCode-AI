@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { MonacoBinding } from 'y-monaco';
 import { FileCode2 } from 'lucide-react';
+import AiPrompt from './AiPrompt';
 import { monaco } from '../lib/monaco';
 import { RoomSession } from '../lib/collab';
 import { getLanguage, STARTER_CODE } from '../lib/languages';
@@ -12,15 +13,22 @@ interface CodeEditorProps {
   peers: RoomPeer[];
   onRun: () => void;
   onCursorChange: (pos: { line: number; column: number }) => void;
+  /** Increment to open the AI prompt from outside (e.g. the navbar button). */
+  aiOpenSignal: number;
 }
 
 /** Escape a string for use inside a CSS `content: "..."` value. */
 const cssString = (s: string) => `"${s.replace(/[\\"]/g, '\\$&').replace(/[\n\r]/g, ' ')}"`;
 
-export default function CodeEditor({ session, language, peers, onRun, onCursorChange }: CodeEditorProps) {
+export default function CodeEditor({ session, language, peers, onRun, onCursorChange, aiOpenSignal }: CodeEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [editor, setEditor] = useState<monaco.editor.IStandaloneCodeEditor | null>(null);
   const [isEmpty, setIsEmpty] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
+
+  useEffect(() => {
+    if (aiOpenSignal > 0) setAiOpen(true);
+  }, [aiOpenSignal]);
 
   // Keep the latest callbacks in refs so the editor commands never go stale.
   const onRunRef = useRef(onRun);
@@ -47,6 +55,7 @@ export default function CodeEditor({ session, language, peers, onRun, onCursorCh
       tabSize: 2,
     });
     ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => onRunRef.current());
+    ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK, () => setAiOpen(true));
     const sub = ed.onDidChangeCursorPosition((e) =>
       onCursorRef.current({ line: e.position.lineNumber, column: e.position.column }),
     );
@@ -103,13 +112,16 @@ export default function CodeEditor({ session, language, peers, onRun, onCursorCh
     <div className="relative h-full w-full">
       <style>{remoteCursorCss}</style>
       <div ref={containerRef} className="absolute inset-0" />
-      {isEmpty && (
+      {editor && <AiPrompt editor={editor} language={language} open={aiOpen} onClose={() => setAiOpen(false)} />}
+      {isEmpty && !aiOpen && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <div className="flex flex-col items-center gap-3 rounded-xl border border-brand-border bg-brand-surface/90 px-6 py-5 text-center shadow-2xl backdrop-blur">
             <FileCode2 className="h-6 w-6 text-blue-400" />
             <div>
               <p className="text-sm font-medium text-white">This {getLanguage(language).label} file is empty</p>
-              <p className="mt-1 text-xs text-brand-text-muted">Start typing, or drop in a warm-up problem.</p>
+              <p className="mt-1 text-xs text-brand-text-muted">
+                Start typing, drop in a warm-up problem, or press Ctrl/Cmd+K to ask AI.
+              </p>
             </div>
             <button
               onClick={insertStarter}

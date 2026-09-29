@@ -1,6 +1,17 @@
 import { useCallback, useState } from 'react';
 import { motion } from 'motion/react';
-import { ArrowLeft, Check, ChevronDown, Copy, Loader2, PanelRightClose, PanelRightOpen, Play, Share2 } from 'lucide-react';
+import {
+  ArrowLeft,
+  Check,
+  ChevronDown,
+  Copy,
+  Loader2,
+  PanelRightClose,
+  PanelRightOpen,
+  Play,
+  Share2,
+  Sparkles,
+} from 'lucide-react';
 import { useRoom } from '../hooks/useRoom';
 import { takePendingRoomLanguage } from '../lib/identity';
 import { getLanguage, LANGUAGES } from '../lib/languages';
@@ -47,6 +58,7 @@ export default function RoomView({ roomId, profile, onProfileChange, onLeave }: 
   const [result, setResult] = useState<RunResult | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [cursor, setCursor] = useState({ line: 1, column: 1 });
+  const [aiOpenSignal, setAiOpenSignal] = useState(0);
   const { copied, copy } = useCopied();
 
   const lang = getLanguage(language);
@@ -119,6 +131,14 @@ export default function RoomView({ roomId, profile, onProfileChange, onLeave }: 
             <ChevronDown className="pointer-events-none absolute top-1/2 right-2 h-3.5 w-3.5 -translate-y-1/2 text-brand-text-muted" />
           </div>
           <button
+            onClick={() => setAiOpenSignal((n) => n + 1)}
+            className="flex h-8 items-center gap-1.5 rounded-md border border-violet-500/40 bg-violet-600/15 px-3 text-xs font-semibold text-violet-200 transition-colors hover:bg-violet-600/30"
+            title="Ask AI to edit code (Ctrl/Cmd + K)"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            <span className="hidden md:inline">Ask AI</span>
+          </button>
+          <button
             onClick={run}
             disabled={running}
             className="flex h-8 items-center gap-1.5 rounded-md bg-emerald-600 px-3 text-xs font-semibold text-white transition-colors hover:bg-emerald-500 disabled:opacity-60"
@@ -168,7 +188,14 @@ export default function RoomView({ roomId, profile, onProfileChange, onLeave }: 
           </div>
           <div className="min-h-0 flex-1">
             {session && (
-              <CodeEditor session={session} language={language} peers={peers} onRun={run} onCursorChange={setCursor} />
+              <CodeEditor
+                session={session}
+                language={language}
+                peers={peers}
+                onRun={run}
+                onCursorChange={setCursor}
+                aiOpenSignal={aiOpenSignal}
+              />
             )}
           </div>
           {outputOpen && (

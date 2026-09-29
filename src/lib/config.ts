@@ -22,6 +22,9 @@ export const SIGNALING_URLS: string[] = (env.VITE_SIGNALING_URLS || SERVER_URL)
 
 export const MATCHMAKING_URL = toWebSocketUrl(env.VITE_MATCHMAKING_URL || `${SERVER_URL}/match`);
 
+/** Base URL for the room relay fallback; the room name is appended. */
+export const RELAY_URL = toWebSocketUrl(env.VITE_RELAY_URL || `${SERVER_URL}/relay`);
+
 export const IS_LOCAL_SERVER = /^wss?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(MATCHMAKING_URL);
 
 /**

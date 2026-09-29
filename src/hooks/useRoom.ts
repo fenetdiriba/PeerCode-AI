@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { createRoomSession, isSignalingConnected, RoomSession } from '../lib/collab';
 import { DEFAULT_LANGUAGE, getLanguage } from '../lib/languages';
-import { AwarenessUser, ChatMessage, ConnectionStatus, LanguageId, RoomPeer, UserProfile } from '../types';
+import {
+  AwarenessUser,
+  ChatMessage,
+  ConnectionDetails,
+  ConnectionStatus,
+  LanguageId,
+  RoomPeer,
+  UserProfile,
+} from '../types';
 
 const MAX_CHAT_MESSAGES = 200;
 
@@ -9,13 +17,19 @@ const MAX_CHAT_MESSAGES = 200;
 export function useRoom(roomId: string, profile: UserProfile, initialLanguage?: LanguageId) {
   const [session, setSession] = useState<RoomSession | null>(null);
   const [peers, setPeers] = useState<RoomPeer[]>([]);
-  const [signalingConnected, setSignalingConnected] = useState(false);
+  const [connection, setConnection] = useState<ConnectionDetails>({
+    signaling: false,
+    relay: 'connecting',
+    relayPeers: 0,
+    directPeers: 0,
+    sameBrowserPeers: 0,
+  });
   const [language, setLanguageState] = useState<LanguageId>(DEFAULT_LANGUAGE);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
 
   useEffect(() => {
     const s = createRoomSession(roomId);
-    const { provider, meta, chat } = s;
+    const { provider, relay, meta, chat } = s;
     const awareness = provider.awareness;
     setSession(s);
 
@@ -31,12 +45,29 @@ export function useRoom(roomId: string, profile: UserProfile, initialLanguage?: 
     };
     awareness.on('change', onAwarenessChange);
 
-    const onSignaling = () => setSignalingConnected(isSignalingConnected(provider));
+    // y-webrtc lists peers it is still *trying* to reach; only count connections that opened.
+    const onConnection = () => {
+      const conns = provider.room ? [...provider.room.webrtcConns.values()] : [];
+      const next: ConnectionDetails = {
+        signaling: isSignalingConnected(provider),
+        relay: relay.status,
+        relayPeers: relay.peerCount,
+        directPeers: conns.filter((c) => c.connected).length,
+        sameBrowserPeers: provider.room?.bcConns.size ?? 0,
+      };
+      setConnection((prev) =>
+        (Object.keys(next) as (keyof ConnectionDetails)[]).every((k) => prev[k] === next[k]) ? prev : next,
+      );
+    };
+    provider.on('peers', onConnection);
     provider.signalingConns.forEach((conn) => {
-      conn.on('connect', onSignaling);
-      conn.on('disconnect', onSignaling);
+      conn.on('connect', onConnection);
+      conn.on('disconnect', onConnection);
     });
-    onSignaling();
+    // A WebRTC connection can open or drop without a 'peers' event, so re-check periodically.
+    const poll = setInterval(onConnection, 2000);
+    const offRelay = relay.onChange(onConnection);
+    onConnection();
 
     // Every matched peer gets the same suggestion, so it doesn't matter who writes it first.
     if (initialLanguage && meta.get('language') === undefined) meta.set('language', initialLanguage);
@@ -51,10 +82,13 @@ export function useRoom(roomId: string, profile: UserProfile, initialLanguage?: 
 
     return () => {
       awareness.off('change', onAwarenessChange);
+      provider.off('peers', onConnection);
+      clearInterval(poll);
       provider.signalingConns.forEach((conn) => {
-        conn.off('connect', onSignaling);
-        conn.off('disconnect', onSignaling);
+        conn.off('connect', onConnection);
+        conn.off('disconnect', onConnection);
       });
+      offRelay();
       meta.unobserve(onMeta);
       chat.unobserve(onChat);
       s.destroy();
@@ -102,8 +136,8 @@ export function useRoom(roomId: string, profile: UserProfile, initialLanguage?: 
   );
 
   const remoteCount = peers.filter((p) => !p.isLocal).length;
-  const status: ConnectionStatus =
-    remoteCount > 0 ? 'connected' : signalingConnected ? 'waiting' : 'disconnected';
+  const online = connection.signaling || connection.relay === 'connected';
+  const status: ConnectionStatus = remoteCount > 0 ? 'connected' : online ? 'waiting' : 'disconnected';
 
-  return { session, peers, remoteCount, status, language, setLanguage, messages, sendMessage };
+  return { session, peers, remoteCount, status, connection, language, setLanguage, messages, sendMessage };
 }

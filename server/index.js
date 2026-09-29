@@ -1,5 +1,7 @@
-// PeerCode AI server: WebRTC signaling (any path) + matchmaking (/match), one port.
-// Neither sees code: rooms sync peer-to-peer once browsers are introduced.
+// PeerCode AI server, one port:
+//   /match         matchmaking queue
+//   /relay/<room>  fallback relay for rooms whose peers can't connect directly (forwards, never stores)
+//   anything else  WebRTC signaling (introduces peers so they can sync directly)
 //
 // Environment:
 //   PORT             port to listen on (hosts like Railway/Render set this). Default 4444.
@@ -10,6 +12,7 @@
 import http from 'node:http';
 import { WebSocketServer } from 'ws';
 import { createMatchmaker } from './matchmaking.js';
+import { handleRelay } from './relay.js';
 import { handleSignaling } from './signaling.js';
 
 const port = Number(process.env.PORT) || 4444;
@@ -49,7 +52,8 @@ function clientIp(req) {
 
 const wss = new WebSocketServer({
   server,
-  maxPayload: 64 * 1024,
+  // Room relay messages can carry a whole document on join (code + chat history).
+  maxPayload: 1024 * 1024,
   verifyClient: ({ origin, req }, done) => {
     if (!originAllowed(origin)) return done(false, 403, 'Origin not allowed');
     if ((connectionsByIp.get(clientIp(req)) ?? 0) >= maxPerIp) return done(false, 429, 'Too many connections');
@@ -79,11 +83,14 @@ wss.on('connection', (ws, req) => {
 
   const path = new URL(req.url ?? '/', 'http://localhost').pathname;
   if (path === '/match') matchmaker.handle(ws);
-  else handleSignaling(ws);
+  else if (path.startsWith('/relay/')) {
+    // Room names are [a-z0-9-], so no decoding is needed; anything else is rejected.
+    if (!handleRelay(ws, path.slice('/relay/'.length))) ws.close(1008, 'Invalid room');
+  } else handleSignaling(ws);
 });
 
 server.listen(port, () => {
-  console.log(`PeerCode AI server listening on port ${port} (signaling: /, matchmaking: /match, health: /health)`);
+  console.log(`PeerCode AI server listening on port ${port} (signaling: /, matchmaking: /match, relay: /relay/<room>, health: /health)`);
   console.log(allowedOrigins.length ? `Allowed origins: ${allowedOrigins.join(', ')}` : 'Allowed origins: any (set ALLOWED_ORIGINS in production)');
 });
 

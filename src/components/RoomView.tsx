@@ -36,7 +36,7 @@ export default function RoomView({ roomId, profile, onProfileChange, onLeave }: 
     const pending = takePendingRoomLanguage(roomId);
     return pending ? getLanguage(pending).id : undefined;
   });
-  const { session, peers, remoteCount, status, language, setLanguage, messages, sendMessage } = useRoom(
+  const { session, peers, remoteCount, status, connection, language, setLanguage, messages, sendMessage } = useRoom(
     roomId,
     profile,
     initialLanguage,
@@ -186,6 +186,7 @@ export default function RoomView({ roomId, profile, onProfileChange, onLeave }: 
 
       <StatusBar
         status={status}
+        connection={connection}
         remoteCount={remoteCount}
         languageLabel={lang.label}
         cursor={cursor}

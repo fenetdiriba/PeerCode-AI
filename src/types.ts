@@ -66,6 +66,19 @@ export interface ChatMessage {
  */
 export type ConnectionStatus = 'disconnected' | 'waiting' | 'connected';
 
+/** What the room is actually connected through, for the status bar and its details panel. */
+export interface ConnectionDetails {
+  /** Connected to the signaling server (needed to set up direct WebRTC connections). */
+  signaling: boolean;
+  relay: 'connecting' | 'connected' | 'disconnected';
+  /** Other clients on the server relay for this room. */
+  relayPeers: number;
+  /** Peers connected directly over WebRTC. */
+  directPeers: number;
+  /** Other tabs in this browser (BroadcastChannel). */
+  sameBrowserPeers: number;
+}
+
 export interface RunResult {
   lines: Array<{ kind: 'log' | 'error' | 'info'; text: string }>;
   durationMs: number;

@@ -7,7 +7,7 @@ PeerCode has two parts that deploy separately:
 | **Frontend** | Static Vite build (landing, editor, match page) | Vercel | `vercel.json` |
 | **Server** | Node WebSocket server: signaling + matchmaking | Railway (or Render) | `railway.json` / `render.yaml` |
 
-The server has to be a long-running process with WebSocket support, which is why it doesn't go on Vercel. It never sees any code: once two browsers are introduced, they sync directly over WebRTC.
+The server has to be a long-running process with WebSocket support, which is why it doesn't go on Vercel. It introduces browsers so they can sync directly over WebRTC. When a network blocks that (common on mobile data), it relays the room's updates between the two browsers instead. It never stores them.
 
 Deploy the **server first**, because the frontend needs its URL at build time.
 
@@ -60,21 +60,23 @@ Use your real Vercel domain. The `*` entry allows Vercel's preview deployments (
 
 ## 4. Smoke test
 
-1. Open your Vercel URL → **Create a room** → copy the link → open it on your phone (on mobile data, not your Wi-Fi). Type on one, watch the other. The status bar should say **Connected to 1 peer**.
+1. Open your Vercel URL → **Create a room** → copy the link → open it on your phone (on mobile data, not your Wi-Fi). Type on one, watch the other. The status bar should say **Connected to 1 peer · direct** or **· via server relay**. Both are fine.
 2. Open `/#/match` in two different browsers with overlapping skills → **Find partner** in both → they land in the same room.
 
 ## Troubleshooting
 
+Click the status text in the bottom-left of a room to open the **Connection** panel. It shows whether the server is reachable and whether you're connected directly or through the relay.
+
 | Symptom | Likely cause |
 | --- | --- |
-| Status bar stays red ("Offline") | `VITE_SERVER_URL` missing or wrong, or you didn't redeploy after setting it. Open DevTools → Console for WebSocket errors. |
-| "Can't reach the matchmaking server" | Same as above, or `ALLOWED_ORIGINS` doesn't include the exact URL you're on (check for a typo or a missing preview pattern). |
-| Yellow status forever, partner is in the room too | Both reached the server but WebRTC couldn't connect directly. Usually a strict campus or corporate network. Add a TURN server (below). |
-| Works on your Wi-Fi, fails on phone data | Same as above: needs TURN. |
+| Red dot, "Can't reach the server" | `VITE_SERVER_URL` missing or wrong on Vercel, or you didn't redeploy after setting it. Or `ALLOWED_ORIGINS` on Railway doesn't match the site's exact address. |
+| "Can't reach the matchmaking server" | Same as above. |
+| Yellow, "waiting for peers", while your partner is in the room | You're in different rooms (compare the room code at the top), or one side is on an old deploy. Hard-refresh both. |
+| Green, "via server relay" | Working as intended: a direct connection wasn't possible on this network, so edits go through the server. Adding a TURN server (below) can make it direct. |
 
-### TURN (only if you hit the NAT problem)
+### TURN (optional)
 
-By default, browsers use public STUN servers to find a direct path, which works on most home and mobile networks. Strict networks block direct connections and need a TURN relay. Free tiers exist (for example Metered or Cloudflare Calls TURN). Add it to Vercel as:
+The relay already keeps rooms working on strict networks. If you'd rather keep traffic browser-to-browser there too, add a TURN server. Free tiers exist (for example Metered or Cloudflare Calls TURN). Add it to Vercel as:
 
 ```
 VITE_ICE_SERVERS=[{"urls":"stun:stun.l.google.com:19302"},{"urls":"turn:YOUR_HOST:3478","username":"USER","credential":"PASS"}]

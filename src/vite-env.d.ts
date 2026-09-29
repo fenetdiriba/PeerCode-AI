@@ -9,6 +9,8 @@ interface ImportMetaEnv {
   readonly VITE_SIGNALING_URLS?: string;
   /** Override: matchmaking WebSocket URL. Defaults to VITE_SERVER_URL + /match. */
   readonly VITE_MATCHMAKING_URL?: string;
+  /** Override: room relay base URL. Defaults to VITE_SERVER_URL + /relay. */
+  readonly VITE_RELAY_URL?: string;
 }
 
 interface ImportMeta {

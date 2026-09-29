@@ -1,0 +1,12 @@
+# Alternative to Railway: Render Blueprint for the PeerCode server (free plan supports WebSockets).
+services:
+  - type: web
+    name: peercode-server
+    runtime: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: ALLOWED_ORIGINS
+        sync: false

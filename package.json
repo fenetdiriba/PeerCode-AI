@@ -7,12 +7,15 @@
     "dev": "vite --port=3000 --host=0.0.0.0",
     "dev:all": "node server/index.js & vite --port=3000 --host=0.0.0.0",
     "server": "node server/index.js",
-    "signal": "node server/index.js",
+    "start": "node server/index.js",
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

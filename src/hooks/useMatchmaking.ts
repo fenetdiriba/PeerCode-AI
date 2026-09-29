@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { IS_LOCAL_SERVER, MATCHMAKING_URL } from '../lib/config';
 import { MatchServerMessage, UserProfile } from '../types';
-
-const MATCH_URL = import.meta.env.VITE_MATCHMAKING_URL || 'ws://localhost:4444/match';
 
 export type Match = Extract<MatchServerMessage, { type: 'matched' }>;
 
@@ -32,7 +31,7 @@ export function useMatchmaking(profile: UserProfile) {
     closeSocket();
     setState({ phase: 'connecting' });
 
-    const ws = new WebSocket(MATCH_URL);
+    const ws = new WebSocket(MATCHMAKING_URL);
     socketRef.current = ws;
 
     ws.onopen = () => {
@@ -68,7 +67,9 @@ export function useMatchmaking(profile: UserProfile) {
       socketRef.current = null;
       setState({
         phase: 'error',
-        message: "Can't reach the matchmaking server. If you're running locally, start it with `npm run server`.",
+        message: IS_LOCAL_SERVER
+          ? "Can't reach the matchmaking server. Start it with `npm run server`."
+          : "Can't reach the matchmaking server right now. Try again in a moment.",
       });
     };
   }, [profile.name, profile.userId, profile.skills]);

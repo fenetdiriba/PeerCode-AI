@@ -1,13 +1,18 @@
 # PeerCode AI
 
+**Live: [peer-code-ai.vercel.app](https://peer-code-ai.vercel.app)**
+
 Real-time collaborative code editor built for interview prep. Two people share a room and edit code together, browser-to-browser over WebRTC, with a server relay as a fallback on networks that block direct connections.
 
-## Status
+## Try it
 
-Real-time sync, live cursors, presence, chat, an in-browser runner, and skill-based matchmaking all work. Next up: voice chat and AI hints.
+1. Open [peer-code-ai.vercel.app](https://peer-code-ai.vercel.app) and click **Create a room**.
+2. Send the link to a friend, or open it on your phone. Type on one screen and watch the other.
+3. Or click **Find a partner** to get matched with someone practicing the same topics.
 
 ## Features
 
+- **AI code hints.** Press **Ctrl/Cmd+K** (or **Ask AI**) and describe a change: "fix the bug", "add input validation", "write a binary search". With code selected, Gemini rewrites just that part. Otherwise it edits the whole file. The edit lands through the shared document, so your partner sees it live, and Ctrl/Cmd+Z undoes it. The Gemini key stays on the server.
 - **Skill-based matchmaking.** Fill in a quick skill profile (languages, topics, level), hit *Find partner*, and get paired with the closest match in the queue. Both people land in the same new room, opened in a language they share.
 - **Rooms by link.** Create a room, share the URL (`/#/room/abc123`), and anyone with it joins the same session. No accounts.
 - **Conflict-free sync.** Code is a Yjs `Y.Text` CRDT, bound to Monaco with `y-monaco`. Concurrent edits from any number of peers merge to the same result on every client.
@@ -22,7 +27,8 @@ Real-time sync, live cursors, presence, chat, an in-browser runner, and skill-ba
 - Vite + React 19, TypeScript, Tailwind CSS v4, Motion
 - Monaco Editor (the VS Code editor, loaded from the local `monaco-editor` package)
 - Yjs + y-webrtc + y-monaco for CRDT sync, awareness, and cursors
-- Node.js + `ws` server for WebRTC signaling and the matchmaking queue (`server/`)
+- Node.js + `ws` server for WebRTC signaling, the relay, matchmaking, and the AI endpoint (`server/`)
+- Google Gemini (`@google/genai`, `gemini-2.5-flash`) for AI code hints
 
 ## Running locally
 
@@ -38,7 +44,7 @@ To run the two processes separately, use `npm run server` and `npm run dev`. To 
 To try matchmaking by yourself, open `/#/match` in two different browsers (or one normal window and one private window). Two tabs in the same browser share a profile, and you're never matched with yourself.
 
 ```bash
-npm test             # matching math, matchmaking queue, relay (node:test)
+npm test             # matching math, matchmaking queue, relay, AI endpoint (node:test)
 npm run lint         # TypeScript
 ```
 
@@ -68,10 +74,18 @@ The server keeps a queue in memory. Every second it scores every waiting pair, t
 
 The math lives in `shared/matching.js` and is used by both the server and the UI.
 
+## How AI hints work
+
+The browser sends the current file, your instruction, and the selection offsets to `POST /api/ai-hint` on the server, which calls Gemini with the key it keeps in `GEMINI_API_KEY`. With a selection, the prompt marks the selected region and asks for only its replacement. Without one, it asks for the whole updated file, and the client applies just the changed middle part (common prefix and suffix skipped) so the edit stays small in the shared document.
+
+Your partner can keep typing while the AI works. A selected region is tracked as their edits shift it. For whole-file edits, if the file changed in the meantime, the stale result is dropped instead of overwriting their work. The endpoint is limited to allowed origins and rate-limited per IP.
+
 ## Project layout
 
 ```
-server/index.js            one port: signaling (any path) + matchmaking (/match) + relay (/relay/:room) + /health
+server/index.js            reads env, starts the server
+server/app.js              one port: signaling + matchmaking (/match) + relay (/relay/:room) + AI (/api/ai-hint) + /health
+server/ai.js               AI hint endpoint: validation, prompt, Gemini call, rate limit
 server/relay.js            room relay fallback (forwards frames, stores nothing)
 server/signaling.js        y-webrtc compatible signaling
 server/matchmaking.js      in-memory matchmaking queue
@@ -82,9 +96,10 @@ src/hooks/useMatchmaking.ts  matchmaking WebSocket client
 src/lib/config.ts          server URL / ICE config from env
 src/lib/collab.ts          Y.Doc + WebrtcProvider + relay setup
 src/lib/relay.ts           relay provider (Yjs sync + awareness over WebSocket)
+src/lib/ai.ts              AI request + minimal-diff helper
 src/lib/runner.ts          sandboxed JS/TS execution in a Web Worker
 src/lib/monaco.ts          Monaco workers + theme
-src/components/            LandingView, OnboardingModal, MatchView, RoomView, CodeEditor, PresencePanel, ChatPanel, OutputPanel, StatusBar
+src/components/            LandingView, OnboardingModal, MatchView, RoomView, CodeEditor, AiPrompt, PresencePanel, ChatPanel, OutputPanel, StatusBar
 ```
 
 ## Roadmap
@@ -94,8 +109,7 @@ src/components/            LandingView, OnboardingModal, MatchView, RoomView, Co
 - [x] Live cursors, presence panel, synced chat
 - [x] In-browser JS/TS runner
 - [x] Skill-profile onboarding + cosine-similarity matchmaking
+- [x] AI code hints via Gemini (Ctrl/Cmd+K)
 - [ ] Voice chat (Daily.co)
-- [ ] AI code hints via Gemini
 - [ ] Python runner (Pyodide)
-- [x] Deploy config (Vercel + Railway/Render), see DEPLOY.md
-- [ ] Live URL
+- [x] Deployed: frontend on Vercel, server on Railway ([live](https://peer-code-ai.vercel.app))

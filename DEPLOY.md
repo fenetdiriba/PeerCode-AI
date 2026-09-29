@@ -58,10 +58,25 @@ Back on Railway → your service → **Variables** → add:
 
 Use your real Vercel domain. The `*` entry allows Vercel's preview deployments (one per PR). Railway redeploys automatically. Without this, any website could use your server.
 
-## 4. Smoke test
+## 4. Turn on AI hints (Gemini)
+
+1. Get a free key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey) → **Create API key**. Treat it like a password: don't commit it or paste it anywhere public.
+2. Railway → your service → **Variables** → add:
+
+   | Name | Value |
+   | --- | --- |
+   | `GEMINI_API_KEY` | your key |
+
+   Railway redeploys on its own. The key only lives on the server; the browser never sees it.
+3. Check: `https://<your-railway-domain>/health` should now show `"ai":true`.
+
+Optional: `GEMINI_MODEL` (default `gemini-2.5-flash`) and `AI_REQUESTS_PER_10_MIN` (per-IP limit, default 20).
+
+## 5. Smoke test
 
 1. Open your Vercel URL → **Create a room** → copy the link → open it on your phone (on mobile data, not your Wi-Fi). Type on one, watch the other. The status bar should say **Connected to 1 peer · direct** or **· via server relay**. Both are fine.
 2. Open `/#/match` in two different browsers with overlapping skills → **Find partner** in both → they land in the same room.
+3. In a room, press **Ctrl/Cmd+K** (or **Ask AI**) → "write a function that reverses a string" → the code appears for both people.
 
 ## Troubleshooting
 
@@ -72,6 +87,8 @@ Click the status text in the bottom-left of a room to open the **Connection** pa
 | Red dot, "Can't reach the server" | `VITE_SERVER_URL` missing or wrong on Vercel, or you didn't redeploy after setting it. Or `ALLOWED_ORIGINS` on Railway doesn't match the site's exact address. |
 | "Can't reach the matchmaking server" | Same as above. |
 | Yellow, "waiting for peers", while your partner is in the room | You're in different rooms (compare the room code at the top), or one side is on an old deploy. Hard-refresh both. |
+| "AI hints aren't set up on this server yet" | `GEMINI_API_KEY` isn't set on Railway (or the redeploy hasn't finished). `/health` shows `"ai":false`. |
+| "The AI request failed" | Usually an invalid key or quota. Railway → **Deployments → View logs** shows the Gemini error. |
 | Green, "via server relay" | Working as intended: a direct connection wasn't possible on this network, so edits go through the server. Adding a TURN server (below) can make it direct. |
 
 ### TURN (optional)

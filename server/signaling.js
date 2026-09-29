@@ -1,31 +1,13 @@
-// Minimal WebRTC signaling server for y-webrtc.
+// Minimal WebRTC signaling for y-webrtc.
 // Peers subscribe to a room "topic" and publish offers/answers/ICE candidates to it.
 // Once two browsers have connected, no document data passes through here.
-import http from 'node:http';
-import { WebSocketServer } from 'ws';
+import { send } from './util.js';
 
-const port = Number(process.env.PORT) || 4444;
 const topics = new Map(); // topic name -> Set<WebSocket>
 
-const server = http.createServer((_req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('PeerCode AI signaling server: ok');
-});
-const wss = new WebSocketServer({ server });
-
-const send = (ws, message) => {
-  if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(message));
-};
-
-wss.on('connection', (ws) => {
+/** @param {import('ws').WebSocket} ws */
+export function handleSignaling(ws) {
   const subscribed = new Set();
-  let alive = true;
-  ws.on('pong', () => (alive = true));
-  const heartbeat = setInterval(() => {
-    if (!alive) return ws.terminate();
-    alive = false;
-    ws.ping();
-  }, 30000);
 
   ws.on('message', (raw) => {
     let msg;
@@ -63,13 +45,10 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('close', () => {
-    clearInterval(heartbeat);
     for (const t of subscribed) {
       const subs = topics.get(t);
       subs?.delete(ws);
       if (subs?.size === 0) topics.delete(t);
     }
   });
-});
-
-server.listen(port, () => console.log(`Signaling server listening on ws://localhost:${port}`));
+}

@@ -1,6 +1,6 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { motion } from 'motion/react';
-import { ArrowRight, GitMerge, MousePointer2, Network, Play, Sparkles, Users, Mic } from 'lucide-react';
+import { ArrowRight, GitMerge, MousePointer2, Network, Play, Sparkles, Users, Mic, Pencil, Code2 } from 'lucide-react';
 import { parseRoomInput, sanitizeName } from '../lib/identity';
 import { UserProfile } from '../types';
 import Logo from './Logo';
@@ -9,6 +9,8 @@ interface LandingViewProps {
   profile: UserProfile;
   onProfileChange: (profile: UserProfile) => void;
   onCreateRoom: () => void;
+  onFindPartner: () => void;
+  onEditSkills: () => void;
   onJoinRoom: (roomId: string) => void;
 }
 
@@ -37,7 +39,6 @@ const FEATURES = [
 
 const ROADMAP = [
   { icon: Mic, label: 'Voice chat' },
-  { icon: Users, label: 'Skill-based matchmaking' },
   { icon: Sparkles, label: 'AI code hints' },
 ];
 
@@ -98,10 +99,20 @@ function EditorPreview() {
   );
 }
 
-export default function LandingView({ profile, onProfileChange, onCreateRoom, onJoinRoom }: LandingViewProps) {
+export default function LandingView({
+  profile,
+  onProfileChange,
+  onCreateRoom,
+  onFindPartner,
+  onEditSkills,
+  onJoinRoom,
+}: LandingViewProps) {
   const [name, setName] = useState(profile.name);
   const [joinInput, setJoinInput] = useState('');
   const [joinError, setJoinError] = useState<string | null>(null);
+
+  // The onboarding modal can rename you too; keep the field in step.
+  useEffect(() => setName(profile.name), [profile.name]);
 
   const saveName = () => {
     const clean = sanitizeName(name);
@@ -150,8 +161,8 @@ export default function LandingView({ profile, onProfileChange, onCreateRoom, on
               Practice interviews with a partner, in one shared editor.
             </h1>
             <p className="mt-4 max-w-lg text-base leading-relaxed text-brand-text-muted">
-              Spin up a room, send the link, and code together in real time with live cursors, chat, and a built-in
-              runner. No accounts, no installs.
+              Get matched with someone practicing the same topics at your level, or spin up a room and send the link.
+              Live cursors, chat, and a built-in runner. No accounts, no installs.
             </p>
 
             <div className="mt-8 max-w-md space-y-4">
@@ -169,11 +180,33 @@ export default function LandingView({ profile, onProfileChange, onCreateRoom, on
                 </div>
               </label>
 
+              <div className="grid gap-2 sm:grid-cols-2">
+                <button
+                  onClick={() => {
+                    saveName();
+                    onFindPartner();
+                  }}
+                  className="flex h-11 items-center justify-center gap-2 rounded-lg bg-blue-600 text-sm font-semibold text-white transition-colors hover:bg-blue-500"
+                >
+                  <Users className="h-4 w-4" /> Find a partner
+                </button>
+                <button
+                  onClick={create}
+                  className="flex h-11 items-center justify-center gap-2 rounded-lg border border-brand-border bg-brand-surface-light text-sm font-semibold text-white transition-colors hover:bg-neutral-700"
+                >
+                  <Code2 className="h-4 w-4" /> Create a room <ArrowRight className="h-4 w-4" />
+                </button>
+              </div>
               <button
-                onClick={create}
-                className="flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-blue-600 text-sm font-semibold text-white transition-colors hover:bg-blue-500"
+                onClick={onEditSkills}
+                className="flex items-center gap-1.5 text-xs text-brand-text-muted hover:text-white"
               >
-                Create a room <ArrowRight className="h-4 w-4" />
+                <Pencil className="h-3 w-3" />
+                {profile.skills
+                  ? `Skill profile: ${[...profile.skills.languages, ...profile.skills.topics].slice(0, 4).join(', ')}${
+                      profile.skills.languages.length + profile.skills.topics.length > 4 ? '…' : ''
+                    }`
+                  : 'Set up your skill profile for matchmaking'}
               </button>
 
               <div className="flex items-center gap-3 text-xs text-neutral-600">

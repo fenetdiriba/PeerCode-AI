@@ -1,6 +1,8 @@
+import { normalizeSkills } from '../../shared/matching.js';
 import { UserProfile } from '../types';
 
 const STORAGE_KEY = 'peercode:profile';
+const ONBOARDING_KEY = 'peercode:onboarding-seen';
 
 // High-contrast colors that read well on the dark editor background.
 export const CURSOR_COLORS = [
@@ -25,21 +27,36 @@ export function sanitizeName(raw: string): string {
 }
 
 export function loadProfile(): UserProfile {
+  let parsed: Partial<UserProfile> = {};
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored) as Partial<UserProfile>;
-      const name = sanitizeName(parsed.name ?? '');
-      if (name && parsed.color && CURSOR_COLORS.includes(parsed.color)) {
-        return { name, color: parsed.color };
-      }
-    }
+    parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}') ?? {};
   } catch {
-    // Storage unavailable or corrupt: fall through to a fresh profile.
+    // Storage unavailable or corrupt: start fresh.
   }
-  const profile = { name: `${pick(ADJECTIVES)} ${pick(ANIMALS)}`, color: pick(CURSOR_COLORS) };
+  const profile: UserProfile = {
+    name: sanitizeName(parsed.name ?? '') || `${pick(ADJECTIVES)} ${pick(ANIMALS)}`,
+    color: parsed.color && CURSOR_COLORS.includes(parsed.color) ? parsed.color : pick(CURSOR_COLORS),
+    userId: typeof parsed.userId === 'string' && /^[a-zA-Z0-9-]{8,64}$/.test(parsed.userId) ? parsed.userId : crypto.randomUUID(),
+    skills: normalizeSkills(parsed.skills),
+  };
   saveProfile(profile);
   return profile;
+}
+
+export function hasSeenOnboarding(): boolean {
+  try {
+    return localStorage.getItem(ONBOARDING_KEY) === '1';
+  } catch {
+    return true; // No storage: don't nag on every visit.
+  }
+}
+
+export function markOnboardingSeen() {
+  try {
+    localStorage.setItem(ONBOARDING_KEY, '1');
+  } catch {
+    // Ignore.
+  }
 }
 
 export function saveProfile(profile: UserProfile) {
@@ -65,4 +82,25 @@ export function parseRoomInput(input: string): string | null {
   const fromUrl = trimmed.match(/#\/room\/([a-z0-9]+)/);
   const candidate = fromUrl ? fromUrl[1] : trimmed;
   return ROOM_ID_PATTERN.test(candidate) ? candidate : null;
+}
+
+const ROOM_LANGUAGE_KEY = (roomId: string) => `peercode:room-language:${roomId}`;
+
+/** Matchmaking picks a language for the new room; hand it to the room view once. */
+export function setPendingRoomLanguage(roomId: string, language: string) {
+  try {
+    sessionStorage.setItem(ROOM_LANGUAGE_KEY(roomId), language);
+  } catch {
+    // Ignore: the room just opens in the default language.
+  }
+}
+
+export function takePendingRoomLanguage(roomId: string): string | null {
+  try {
+    const value = sessionStorage.getItem(ROOM_LANGUAGE_KEY(roomId));
+    sessionStorage.removeItem(ROOM_LANGUAGE_KEY(roomId));
+    return value;
+  } catch {
+    return null;
+  }
 }

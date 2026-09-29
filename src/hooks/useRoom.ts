@@ -5,7 +5,8 @@ import { AwarenessUser, ChatMessage, ConnectionStatus, LanguageId, RoomPeer, Use
 
 const MAX_CHAT_MESSAGES = 200;
 
-export function useRoom(roomId: string, profile: UserProfile) {
+/** @param initialLanguage language to open a brand-new room in (set by matchmaking) */
+export function useRoom(roomId: string, profile: UserProfile, initialLanguage?: LanguageId) {
   const [session, setSession] = useState<RoomSession | null>(null);
   const [peers, setPeers] = useState<RoomPeer[]>([]);
   const [signalingConnected, setSignalingConnected] = useState(false);
@@ -37,6 +38,9 @@ export function useRoom(roomId: string, profile: UserProfile) {
     });
     onSignaling();
 
+    // Every matched peer gets the same suggestion, so it doesn't matter who writes it first.
+    if (initialLanguage && meta.get('language') === undefined) meta.set('language', initialLanguage);
+
     const onMeta = () => setLanguageState(getLanguage(meta.get('language') as string | undefined).id);
     meta.observe(onMeta);
     onMeta();
@@ -57,6 +61,7 @@ export function useRoom(roomId: string, profile: UserProfile) {
       setSession(null);
       setPeers([]);
     };
+    // initialLanguage is only read when the room is first opened.
   }, [roomId]);
 
   // Publish (and re-publish on rename) our identity. joinedAt is kept stable across renames.

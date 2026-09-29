@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import { motion } from 'motion/react';
 import { ArrowLeft, Check, ChevronDown, Copy, Loader2, PanelRightClose, PanelRightOpen, Play, Share2 } from 'lucide-react';
 import { useRoom } from '../hooks/useRoom';
+import { takePendingRoomLanguage } from '../lib/identity';
 import { getLanguage, LANGUAGES } from '../lib/languages';
 import { runCode } from '../lib/runner';
 import { LanguageId, RunResult, UserProfile } from '../types';
@@ -31,7 +32,15 @@ function useCopied() {
 }
 
 export default function RoomView({ roomId, profile, onProfileChange, onLeave }: RoomViewProps) {
-  const { session, peers, remoteCount, status, language, setLanguage, messages, sendMessage } = useRoom(roomId, profile);
+  const [initialLanguage] = useState(() => {
+    const pending = takePendingRoomLanguage(roomId);
+    return pending ? getLanguage(pending).id : undefined;
+  });
+  const { session, peers, remoteCount, status, language, setLanguage, messages, sendMessage } = useRoom(
+    roomId,
+    profile,
+    initialLanguage,
+  );
   const [sidebarOpen, setSidebarOpen] = useState(() => window.matchMedia('(min-width: 1024px)').matches);
   const [outputOpen, setOutputOpen] = useState(false);
   const [running, setRunning] = useState(false);

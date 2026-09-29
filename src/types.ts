@@ -1,3 +1,7 @@
+import type { SkillLanguage, SkillLevel, SkillProfile, SkillTopic } from '../shared/matching.js';
+
+export type { SkillLanguage, SkillLevel, SkillProfile, SkillTopic };
+
 export type LanguageId = 'javascript' | 'typescript' | 'python' | 'java' | 'cpp';
 
 export interface LanguageOption {
@@ -13,10 +17,29 @@ export interface LanguageOption {
 export interface UserProfile {
   name: string;
   color: string;
+  /** Stable per-browser id, so matchmaking never pairs you with your own other tab. */
+  userId: string;
+  /** Filled in by onboarding; needed for matchmaking. */
+  skills: SkillProfile | null;
 }
 
+/** Messages the matchmaking server sends (see server/matchmaking.js). */
+export type MatchServerMessage =
+  | { type: 'queue'; size: number }
+  | { type: 'error'; message: string }
+  | {
+      type: 'matched';
+      roomId: string;
+      score: number;
+      language: LanguageId;
+      shared: { languages: SkillLanguage[]; topics: SkillTopic[] };
+      partner: SkillProfile & { name: string };
+    };
+
 /** What each peer publishes through Yjs awareness (ephemeral, never stored). */
-export interface AwarenessUser extends UserProfile {
+export interface AwarenessUser {
+  name: string;
+  color: string;
   joinedAt: number;
 }
 

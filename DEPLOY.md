@@ -70,7 +70,9 @@ Use your real Vercel domain. The `*` entry allows Vercel's preview deployments (
    Railway redeploys on its own. The key only lives on the server; the browser never sees it.
 3. Check: `https://<your-railway-domain>/health` should now show `"ai":true`.
 
-Optional: `GEMINI_MODEL` (default `gemini-2.5-flash`) and `AI_REQUESTS_PER_10_MIN` (per-IP limit, default 20).
+Optional: `GEMINI_MODEL` (one or more models, comma-separated, tried in order; by default the server tries `gemini-flash-latest`, then `gemini-2.5-flash`, then `gemini-2.0-flash`) and `AI_REQUESTS_PER_10_MIN` (per-IP limit, default 20).
+
+If an AI request fails, the prompt bar says why (invalid key, quota used up, region not supported, and so on). The full Gemini error is in Railway → **Deployments → View logs**.
 
 ## 5. Smoke test
 

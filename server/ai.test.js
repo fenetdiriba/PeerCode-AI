@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildPrompt, extractCode, validateRequest } from './ai.js';
+import { AiError, buildPrompt, classifyGeminiError, extractCode, geminiGenerator, validateRequest } from './ai.js';
 import { createApp } from './app.js';
 
 test('buildPrompt marks the selection and asks for just the replacement', () => {
@@ -99,5 +99,60 @@ test('HTTP: rate limits per IP and reports model failures', async () => {
     const res = await post(base, { code: 'x', language: 'python', instruction: 'go' });
     assert.equal(res.status, 502);
     assert.doesNotMatch((await res.json()).error, /quota/); // internal details stay in server logs
+  });
+});
+
+const apiError = (status, message) => Object.assign(new Error(message), { status });
+
+test('classifyGeminiError gives actionable messages', () => {
+  assert.equal(classifyGeminiError(apiError(404, 'models/gemini-2.5-flash is not found for API version v1beta')), 'model-unavailable');
+  assert.match(classifyGeminiError(apiError(400, '{"error":{"message":"API key not valid. Please pass a valid API key."}}')).userMessage, /key .*invalid/i);
+  const quota = classifyGeminiError(apiError(429, 'RESOURCE_EXHAUSTED: quota exceeded'));
+  assert.equal(quota.status, 429);
+  assert.match(quota.userMessage, /quota/);
+  assert.match(classifyGeminiError(apiError(400, 'User location is not supported for the API use.')).userMessage, /region/);
+  assert.match(classifyGeminiError(apiError(403, 'PERMISSION_DENIED')).userMessage, /access/);
+  assert.match(classifyGeminiError(apiError(503, 'overloaded')).userMessage, /trouble/);
+});
+
+const fakeClient = (behaviour) => async () => ({
+  models: {
+    generateContent: async ({ model }) => {
+      behaviour.calls.push(model);
+      const outcome = behaviour.byModel[model];
+      if (outcome instanceof Error) throw outcome;
+      return { text: outcome };
+    },
+  },
+});
+
+test('geminiGenerator falls back past retired models and remembers the working one', async () => {
+  const behaviour = { calls: [], byModel: { a: apiError(404, 'not found'), b: 'from b' } };
+  const generate = geminiGenerator('key', ['a', 'b', 'c'], { createClient: fakeClient(behaviour) });
+  assert.equal(await generate('p'), 'from b');
+  assert.equal(await generate('p'), 'from b');
+  assert.deepEqual(behaviour.calls, ['a', 'b', 'b']); // 'a' is skipped after the first failure
+});
+
+test('geminiGenerator stops on non-model errors and when every model is gone', async () => {
+  const bad = { calls: [], byModel: { a: apiError(400, 'API key not valid'), b: 'never' } };
+  await assert.rejects(
+    geminiGenerator('key', ['a', 'b'], { createClient: fakeClient(bad) })('p'),
+    (e) => e instanceof AiError && /invalid/.test(e.userMessage),
+  );
+  assert.deepEqual(bad.calls, ['a']);
+
+  const gone = { calls: [], byModel: { a: apiError(404, 'x'), b: apiError(404, 'y') } };
+  await assert.rejects(geminiGenerator('key', ['a', 'b'], { createClient: fakeClient(gone) })('p'), /GEMINI_MODEL/);
+});
+
+test('HTTP: user-facing AI errors reach the browser', async () => {
+  const generate = async () => {
+    throw new AiError('The Gemini free quota is used up for now. Try again in a minute.', 429);
+  };
+  await withApp({ generate }, async (base) => {
+    const res = await post(base, { code: 'x', language: 'python', instruction: 'go' });
+    assert.equal(res.status, 429);
+    assert.match((await res.json()).error, /quota/);
   });
 });

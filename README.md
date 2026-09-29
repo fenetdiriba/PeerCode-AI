@@ -28,7 +28,7 @@ Real-time collaborative code editor built for interview prep. Two people share a
 - Monaco Editor (the VS Code editor, loaded from the local `monaco-editor` package)
 - Yjs + y-webrtc + y-monaco for CRDT sync, awareness, and cursors
 - Node.js + `ws` server for WebRTC signaling, the relay, matchmaking, and the AI endpoint (`server/`)
-- Google Gemini (`@google/genai`, `gemini-2.5-flash`) for AI code hints
+- Google Gemini (`@google/genai`, `gemini-flash-latest` with automatic fallback) for AI code hints
 
 ## Running locally
 

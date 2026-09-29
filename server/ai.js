@@ -71,20 +71,85 @@ export function validateRequest(body) {
   return { ok: true, value: { code, language, instruction: instruction.trim(), selection: sel } };
 }
 
-/** Gemini via @google/genai, loaded lazily so the server starts fine without it configured. */
-export function geminiGenerator(apiKey, model = 'gemini-2.5-flash') {
-  let client;
-  return async (prompt) => {
-    if (!client) {
+/**
+ * Models to try, in order. `gemini-flash-latest` is Google's alias for the current Flash
+ * model, so it keeps working as specific versions are retired; the others are fallbacks.
+ */
+export const DEFAULT_MODELS = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash'];
+
+/** An error whose message is safe and useful to show the user (no secrets, no raw payloads). */
+export class AiError extends Error {
+  constructor(userMessage, status = 502) {
+    super(userMessage);
+    this.userMessage = userMessage;
+    this.status = status;
+  }
+}
+
+/**
+ * Turn a Gemini API error into something actionable. Returns 'model-unavailable' when the
+ * next model should be tried instead.
+ * @returns {AiError | 'model-unavailable'}
+ */
+export function classifyGeminiError(err) {
+  const status = Number(err?.status) || 0;
+  const msg = String(err?.message ?? '');
+  if (status === 404 || /not found|is not supported for generateContent|no longer available|deprecated/i.test(msg)) {
+    return 'model-unavailable';
+  }
+  if (/API key not valid|API_KEY_INVALID|invalid api key/i.test(msg)) {
+    return new AiError('The Gemini API key on the server is invalid. Check GEMINI_API_KEY on Railway (no spaces or quotes).');
+  }
+  if (/location is not supported|User location/i.test(msg)) {
+    return new AiError('Gemini isn’t available in the server’s region.');
+  }
+  if (status === 429 || /quota|RESOURCE_EXHAUSTED|rate limit/i.test(msg)) {
+    return new AiError('The Gemini free quota is used up for now. Try again in a minute.', 429);
+  }
+  if (status === 401 || status === 403 || /PERMISSION_DENIED|has not been used in project|disabled/i.test(msg)) {
+    return new AiError('The Gemini API key doesn’t have access. Make sure it was created in Google AI Studio.');
+  }
+  if (status >= 500) return new AiError('Gemini is having trouble right now. Try again in a moment.');
+  return new AiError('The AI request failed. Try again.');
+}
+
+/**
+ * Gemini via @google/genai, loaded lazily so the server starts fine without it configured.
+ * Tries each model until one works and remembers it for later requests.
+ *
+ * @param {string} apiKey
+ * @param {string[]} [models]
+ * @param {{ createClient?: (apiKey: string) => Promise<any> }} [deps] injectable for tests
+ */
+export function geminiGenerator(apiKey, models = DEFAULT_MODELS, deps = {}) {
+  const createClient =
+    deps.createClient ??
+    (async (key) => {
       const { GoogleGenAI } = await import('@google/genai');
-      client = new GoogleGenAI({ apiKey });
-    }
-    const res = await client.models.generateContent({
-      model,
-      contents: prompt,
-      config: { systemInstruction: SYSTEM_INSTRUCTION, temperature: 0.2 },
+      return new GoogleGenAI({ apiKey: key });
     });
-    return res.text ?? '';
+  let client;
+  let working = 0; // index of the first model that isn't known to be unavailable
+
+  return async (prompt) => {
+    client ??= await createClient(apiKey);
+    for (let i = working; i < models.length; i++) {
+      try {
+        const res = await client.models.generateContent({
+          model: models[i],
+          contents: prompt,
+          config: { systemInstruction: SYSTEM_INSTRUCTION, temperature: 0.2 },
+        });
+        if (i !== working) console.log(`AI hints: using model ${models[i]}`);
+        working = i;
+        return res.text ?? '';
+      } catch (err) {
+        const kind = classifyGeminiError(err);
+        console.error(`Gemini error (model ${models[i]}, status ${err?.status ?? '?'}): ${err?.message ?? err}`);
+        if (kind !== 'model-unavailable') throw kind;
+      }
+    }
+    throw new AiError(`None of the configured Gemini models are available (${models.join(', ')}). Set GEMINI_MODEL on the server.`);
   };
 }
 
@@ -155,10 +220,10 @@ export function createAiHint({ generate, maxRequests = 20, windowMs = 10 * 60_00
       return json(res, 200, { mode: value.selection ? 'selection' : 'file', text: extractCode(text) });
     } catch (err) {
       console.error('AI hint failed:', err?.message ?? err);
-      const timedOut = err?.message === 'timeout';
-      return json(res, timedOut ? 504 : 502, {
-        error: timedOut ? 'The AI took too long. Try a smaller request.' : 'The AI request failed. Try again.',
-      });
+      if (err?.message === 'timeout') return json(res, 504, { error: 'The AI took too long. Try a smaller request.' });
+      // AiError messages are written for users; anything else stays in the server logs.
+      if (err instanceof AiError) return json(res, err.status, { error: err.userMessage });
+      return json(res, 502, { error: 'The AI request failed. Try again.' });
     } finally {
       clearTimeout(timer);
     }

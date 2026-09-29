@@ -33,7 +33,7 @@ npm run dev:all      # server (signaling + matchmaking) on :4444, app on :3000
 
 Open `http://localhost:3000`, create a room, and open the same link in another browser or another tab.
 
-To run the two processes separately, use `npm run server` and `npm run dev`. To use a different server, set `VITE_SIGNALING_URLS` and `VITE_MATCHMAKING_URL` in `.env` (see `.env.example`).
+To run the two processes separately, use `npm run server` and `npm run dev`. To point the app at a different server, set `VITE_SERVER_URL` in `.env` (see `.env.example`).
 
 To try matchmaking by yourself, open `/#/match` in two different browsers (or one normal window and one private window). Two tabs in the same browser share a profile, and you're never matched with yourself.
 
@@ -41,6 +41,10 @@ To try matchmaking by yourself, open `/#/match` in two different browsers (or on
 npm test             # matching math + matchmaking queue (node:test)
 npm run lint         # TypeScript
 ```
+
+## Deploying
+
+The frontend goes on Vercel and the Node server on Railway (or Render). Config for all three is in the repo. See **[DEPLOY.md](DEPLOY.md)** for the step-by-step checklist.
 
 ## How it works
 
@@ -64,13 +68,14 @@ The math lives in `shared/matching.js` and is used by both the server and the UI
 ## Project layout
 
 ```
-server/index.js            one port: signaling (any path) + matchmaking (/match)
+server/index.js            one port: signaling (any path) + matchmaking (/match) + /health
 server/signaling.js        y-webrtc compatible signaling
 server/matchmaking.js      in-memory matchmaking queue
 shared/matching.js         profile vectors, cosine similarity, pairing (+ tests)
 src/App.tsx                hash routing (#/, #/match, #/room/:id) + profile
 src/hooks/useRoom.ts       room lifecycle: doc, provider, awareness, chat, language
 src/hooks/useMatchmaking.ts  matchmaking WebSocket client
+src/lib/config.ts          server URL / ICE config from env
 src/lib/collab.ts          Y.Doc + WebrtcProvider setup
 src/lib/runner.ts          sandboxed JS/TS execution in a Web Worker
 src/lib/monaco.ts          Monaco workers + theme
@@ -87,4 +92,5 @@ src/components/            LandingView, OnboardingModal, MatchView, RoomView, Co
 - [ ] Voice chat (Daily.co)
 - [ ] AI code hints via Gemini
 - [ ] Python runner (Pyodide)
-- [ ] Deploy (static frontend + Node server)
+- [x] Deploy config (Vercel + Railway/Render), see DEPLOY.md
+- [ ] Live URL

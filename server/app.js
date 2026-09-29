@@ -45,7 +45,16 @@ export function createApp({ allowedOrigins = [], maxConnectionsPerIp = 20, gener
 
     if (path === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, ai: Boolean(generate), queue: matchmaker.size, connections: wss.clients.size }));
+      res.end(
+        JSON.stringify({
+          ok: true,
+          ai: Boolean(generate),
+          // Hosts expose the deployed commit; shows at a glance whether a merge has gone live.
+          version: (process.env.RAILWAY_GIT_COMMIT_SHA || process.env.RENDER_GIT_COMMIT || 'dev').slice(0, 7),
+          queue: matchmaker.size,
+          connections: wss.clients.size,
+        }),
+      );
       return;
     }
 

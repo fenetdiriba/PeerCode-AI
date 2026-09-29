@@ -69,6 +69,7 @@ test('HTTP: returns the model output for allowed origins, with CORS headers', as
 
     const health = await (await fetch(`${base}/health`)).json();
     assert.equal(health.ai, true);
+    assert.equal(typeof health.version, 'string');
   });
 });
 
@@ -98,7 +99,9 @@ test('HTTP: rate limits per IP and reports model failures', async () => {
   await withApp({ generate: async () => { throw new Error('quota'); } }, async (base) => {
     const res = await post(base, { code: 'x', language: 'python', instruction: 'go' });
     assert.equal(res.status, 502);
-    assert.doesNotMatch((await res.json()).error, /quota/); // internal details stay in server logs
+    const { error } = await res.json();
+    assert.doesNotMatch(error, /quota/); // internal details stay in server logs
+    assert.match(error, /server error/);
   });
 });
 
@@ -113,6 +116,19 @@ test('classifyGeminiError gives actionable messages', () => {
   assert.match(classifyGeminiError(apiError(400, 'User location is not supported for the API use.')).userMessage, /region/);
   assert.match(classifyGeminiError(apiError(403, 'PERMISSION_DENIED')).userMessage, /access/);
   assert.match(classifyGeminiError(apiError(503, 'overloaded')).userMessage, /trouble/);
+  assert.match(classifyGeminiError(apiError(401, 'API keys are not supported by this API. Expected OAuth2 access token')).userMessage, /AIza/);
+  // Unrecognized errors carry a short code instead of a bare "failed".
+  assert.match(classifyGeminiError(apiError(400, 'something new')).userMessage, /Gemini error 400/);
+  assert.match(classifyGeminiError(new TypeError('fetch failed')).userMessage, /network error/);
+});
+
+test('geminiGenerator reports a client that fails to start', async () => {
+  const generate = geminiGenerator('key', ['a'], {
+    createClient: async () => {
+      throw new Error('Cannot find package');
+    },
+  });
+  await assert.rejects(generate('p'), (e) => e instanceof AiError && /failed to start/.test(e.userMessage));
 });
 
 const fakeClient = (behaviour) => async () => ({

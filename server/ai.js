@@ -97,6 +97,9 @@ export function classifyGeminiError(err) {
   if (status === 404 || /not found|is not supported for generateContent|no longer available|deprecated/i.test(msg)) {
     return 'model-unavailable';
   }
+  if (/API keys are not supported|Expected OAuth2|CREDENTIALS_MISSING|UNAUTHENTICATED/i.test(msg)) {
+    return new AiError('This kind of key isn’t accepted by the Gemini API. Create one at aistudio.google.com/apikey (it starts with “AIza”).');
+  }
   if (/API key not valid|API_KEY_INVALID|invalid api key/i.test(msg)) {
     return new AiError('The Gemini API key on the server is invalid. Check GEMINI_API_KEY on Railway (no spaces or quotes).');
   }
@@ -110,7 +113,13 @@ export function classifyGeminiError(err) {
     return new AiError('The Gemini API key doesn’t have access. Make sure it was created in Google AI Studio.');
   }
   if (status >= 500) return new AiError('Gemini is having trouble right now. Try again in a moment.');
-  return new AiError('The AI request failed. Try again.');
+  // Unrecognized: include a short, safe code so the failure can be diagnosed without server logs.
+  const code = status
+    ? `Gemini error ${status}`
+    : /fetch failed|ENOTFOUND|ECONNRESET|ECONNREFUSED|ETIMEDOUT|network/i.test(msg)
+      ? 'network error reaching Gemini'
+      : 'unexpected Gemini error';
+  return new AiError(`The AI request failed (${code}). Try again, or check the server logs.`);
 }
 
 /**
@@ -132,7 +141,14 @@ export function geminiGenerator(apiKey, models = DEFAULT_MODELS, deps = {}) {
   let working = 0; // index of the first model that isn't known to be unavailable
 
   return async (prompt) => {
-    client ??= await createClient(apiKey);
+    if (!client) {
+      try {
+        client = await createClient(apiKey);
+      } catch (err) {
+        console.error('Could not start the Gemini client:', err);
+        throw new AiError('The AI client failed to start on the server (check the server logs and Node version).');
+      }
+    }
     for (let i = working; i < models.length; i++) {
       try {
         const res = await client.models.generateContent({
@@ -223,7 +239,7 @@ export function createAiHint({ generate, maxRequests = 20, windowMs = 10 * 60_00
       if (err?.message === 'timeout') return json(res, 504, { error: 'The AI took too long. Try a smaller request.' });
       // AiError messages are written for users; anything else stays in the server logs.
       if (err instanceof AiError) return json(res, err.status, { error: err.userMessage });
-      return json(res, 502, { error: 'The AI request failed. Try again.' });
+      return json(res, 502, { error: 'The AI request failed (server error). Try again, or check the server logs.' });
     } finally {
       clearTimeout(timer);
     }

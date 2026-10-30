@@ -29,6 +29,9 @@ export const RELAY_URL = toWebSocketUrl(env.VITE_RELAY_URL || `${SERVER_URL}/rel
 const toHttpUrl = (url: string) => url.replace(/^ws(s?):\/\//i, 'http$1://');
 export const AI_HINT_URL = env.VITE_AI_URL || `${toHttpUrl(SERVER_URL)}/api/ai-hint`;
 
+/** Base URL of the time-travel debugger API (checkpoints, tests, regression, Meta AI, verify). */
+export const DEBUGGER_API_URL = `${toHttpUrl(SERVER_URL)}/api`;
+
 export const IS_LOCAL_SERVER = /^wss?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(MATCHMAKING_URL);
 
 /**

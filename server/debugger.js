@@ -34,10 +34,11 @@ export function createDebugger({ store, runner, model, challenges = CHALLENGES, 
   // Tests are deterministic fixtures, so a result is a function of (challenge, exact code).
   /** @type {Map<string, Promise<import('./runner.js').TestRun>>} */
   const runCache = new Map();
-  const testCode = (challenge, sourceCode) => {
+  const testCode = (challenge, sourceCode, onExecute = () => {}) => {
     const key = `${challenge.id}:${hashCode(sourceCode)}`;
     let p = runCache.get(key);
     if (!p) {
+      onExecute();
       p = runner.runTests(sourceCode, challenge);
       runCache.set(key, p);
       // Don't cache infrastructure failures or timeouts (they may be load-related).
@@ -124,8 +125,9 @@ export function createDebugger({ store, runner, model, challenges = CHALLENGES, 
       if (ids.size > 1) throw new HttpError(400, 'These checkpoints belong to different challenges; pick a baseline from the current one.');
       checkTestLimit(ip);
       const started = performance.now();
-      const report = await locateRegression(revisions, (rev) => testCode(getChallenge(rev.challengeId), rev.sourceCode), { baselineId, strategy });
-      return { report: { ...report, durationMs: Math.round(performance.now() - started) } };
+      let executedRuns = 0; // fresh test-process executions; the rest came from the result cache
+      const report = await locateRegression(revisions, (rev) => testCode(getChallenge(rev.challengeId), rev.sourceCode, () => executedRuns++), { baselineId, strategy });
+      return { report: { ...report, executedRuns, durationMs: Math.round(performance.now() - started) } };
     }
 
     if (rest[0] === 'analyze' && rest.length === 1 && method === 'POST') {

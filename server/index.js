@@ -60,7 +60,7 @@ server.listen(port, () => {
   console.log(`PeerCode AI server listening on port ${port}`);
   console.log(allowedOrigins.length ? `Allowed origins: ${allowedOrigins.join(', ')}` : 'Allowed origins: any (set ALLOWED_ORIGINS in production)');
   console.log(apiKey ? 'AI hints: enabled' : 'AI hints: disabled (set GEMINI_API_KEY to enable)');
-  console.log(metaKey ? `Debugger AI: Meta ${model.model}` : 'Debugger AI: unavailable (set MODEL_API_KEY to enable)');
+  console.log(metaKey ? `Debugger AI: ${model.model} via ${clean(process.env.META_BASE_URL) ?? DEFAULT_BASE_URL}` : 'Debugger AI: unavailable (set MODEL_API_KEY to enable)');
   console.log(`Checkpoints stored in ${revisionsDir}`);
 });
 

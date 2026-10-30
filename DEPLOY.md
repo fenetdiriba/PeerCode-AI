@@ -107,3 +107,14 @@ then redeploy.
 
 - The matchmaking queue lives in the server's memory. That's fine for one instance. Scaling to several instances would need a shared store like Redis.
 - Each IP can hold 20 WebSocket connections at once (`MAX_CONNECTIONS_PER_IP`).
+
+## Time-travel debugger settings
+
+On Railway (or Render) → **Variables**:
+
+| Name | Value |
+| --- | --- |
+| `MODEL_API_KEY` | your Meta Model API key (server only) |
+| `REVISIONS_DIR` | a path on a persistent volume, e.g. `/data/revisions` |
+
+Checkpoints are written to `REVISIONS_DIR`. Railway's filesystem is wiped on every redeploy, so attach a volume (**Service → Settings → Volumes**, mount at `/data`) or checkpoints vanish with each deploy. Test runs start a child Node process per run, which uses CPU and memory on the server. The free tiers are fine for demos.

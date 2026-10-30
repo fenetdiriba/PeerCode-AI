@@ -191,12 +191,12 @@ export function useDebugger(roomId: string, session: RoomSession | null, authorN
     [roomId],
   );
 
-  const locate = useCallback(async () => {
+  const locate = useCallback(async (strategy: RegressionReport['strategy'] = 'bisect+verify') => {
     setBusy('locate');
     setError(null);
     resetPipeline();
     try {
-      const { report } = await debuggerApi.locateRegression(roomId);
+      const { report } = await debuggerApi.locateRegression(roomId, { strategy });
       setReport(report);
       setRuns((prev) => {
         const next = { ...prev };

@@ -159,9 +159,19 @@ export default function DebuggerPanel({ dbg }: { dbg: DebuggerState }) {
       )}
 
       <Section step={1} title="Locate regression" active>
-        <Button onClick={dbg.locate} busy={busy === 'locate'} disabled={busy !== null || revisions.length < 2} icon={<Crosshair className="h-3.5 w-3.5" />}>
-          Locate regression
-        </Button>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Button onClick={() => dbg.locate()} busy={busy === 'locate'} disabled={busy !== null || revisions.length < 2} icon={<Crosshair className="h-3.5 w-3.5" />}>
+            Locate regression
+          </Button>
+          <button
+            onClick={() => dbg.locate('linear')}
+            disabled={busy !== null || revisions.length < 2}
+            className="rounded-md px-2 py-1.5 text-[11px] text-brand-text-muted hover:bg-white/5 hover:text-white disabled:opacity-40"
+            title="Test every checkpoint. Slower, but detects pass/fail flips that bisection can skip over."
+          >
+            Full scan
+          </button>
+        </div>
         {revisions.length < 2 && <p className="mt-1.5 text-[11px] text-brand-text-muted">Needs at least two checkpoints.</p>}
         {report && (
           <div className="mt-2.5 space-y-2 rounded-md border border-brand-border bg-black/30 p-2.5">
@@ -196,6 +206,11 @@ export default function DebuggerPanel({ dbg }: { dbg: DebuggerState }) {
               {report.strategy} · tested {report.testsRun} of {report.revisionsInRange} checkpoints · {report.executedRuns} fresh run{report.executedRuns === 1 ? '' : 's'}
               {report.executedRuns < report.testsRun ? ' (rest cached by code hash)' : ''} · {report.durationMs}ms
             </p>
+            {found && report.strategy === 'bisect+verify' && report.testsRun < report.revisionsInRange && (
+              <p className="text-[10px] text-neutral-500">
+                Bisection skipped {report.revisionsInRange - report.testsRun} earlier checkpoint{report.revisionsInRange - report.testsRun === 1 ? '' : 's'}, so a temporary failure there would go unnoticed. Use Full scan to test them all.
+              </p>
+            )}
             <p className="text-[10px] text-neutral-500">A failing test shows where behavior changed, not which line is at fault. The diff narrows it down.</p>
           </div>
         )}

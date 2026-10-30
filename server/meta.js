@@ -14,11 +14,22 @@ export const DEFAULT_MODEL = 'muse-spark-1.3';
 /** An error whose message is safe to show users (never contains the key or raw payloads). */
 export class ModelError extends Error {
   /** @param {'missing-key' | 'auth' | 'rate-limit' | 'timeout' | 'upstream' | 'bad-request' | 'network' | 'invalid-response'} code */
-  constructor(code, message, status = 502) {
+  constructor(code, message, status = 502, { upstreamStatus = null, detail = '' } = {}) {
     super(message);
     this.code = code;
     this.status = status;
+    /** HTTP status Meta answered with, if any (for diagnostics; not shown in the app UI). */
+    this.upstreamStatus = upstreamStatus;
+    /** Sanitized error text from Meta's response body (key redacted, truncated). */
+    this.detail = detail;
   }
+}
+
+/** Redact the key (and anything bearer-token shaped) and cap the length, for safe logging. */
+export function sanitize(text, secret) {
+  let out = String(text ?? '');
+  if (secret) out = out.split(secret).join('[REDACTED]');
+  return out.replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [REDACTED]').slice(0, 300);
 }
 
 /**
@@ -48,14 +59,16 @@ export function readText(body) {
   return null;
 }
 
-/** Map an HTTP failure to a user-facing ModelError. */
-export function classifyHttpError(status, body) {
-  const detail = String(body?.error?.message ?? body?.message ?? body?.detail ?? '').slice(0, 200);
-  if (status === 401 || status === 403) return new ModelError('auth', 'The Meta API rejected the key. Check MODEL_API_KEY on the server.', 502);
-  if (status === 429) return new ModelError('rate-limit', 'The Meta API rate limit was hit. Wait a minute and try again.', 429);
-  if (status === 404) return new ModelError('bad-request', `The Meta API endpoint or model was not found (${detail || 'check META_BASE_URL / META_MODEL'}).`, 502);
-  if (status >= 500) return new ModelError('upstream', 'The Meta API is having trouble right now. Try again shortly.', 502);
-  return new ModelError('bad-request', `The Meta API refused the request (${status}${detail ? `: ${detail}` : ''}).`, 502);
+/** Map an HTTP failure to a user-facing ModelError. `rawText` is used when the body isn't JSON. */
+export function classifyHttpError(status, body, secret, rawText = '') {
+  const message = body?.error?.message ?? body?.message ?? body?.detail ?? (typeof body?.error === 'string' ? body.error : '') ?? '';
+  const detail = sanitize(message || rawText, secret);
+  const extra = { upstreamStatus: status, detail };
+  if (status === 401 || status === 403) return new ModelError('auth', `The Meta API rejected the key (${status}). Check MODEL_API_KEY on the server.`, 502, extra);
+  if (status === 429) return new ModelError('rate-limit', 'The Meta API rate limit was hit. Wait a minute and try again.', 429, extra);
+  if (status === 404) return new ModelError('bad-request', `The Meta API endpoint or model was not found (${detail || 'check META_BASE_URL / META_MODEL'}).`, 502, extra);
+  if (status >= 500) return new ModelError('upstream', `The Meta API is having trouble right now (${status}). Try again shortly.`, 502, extra);
+  return new ModelError('bad-request', `The Meta API refused the request (${status}${detail ? `: ${detail}` : ''}).`, 502, extra);
 }
 
 /**
@@ -84,14 +97,30 @@ export function createMetaClient({ apiKey, baseUrl = DEFAULT_BASE_URL, model = D
         });
       } catch (err) {
         if (err?.name === 'AbortError') throw new ModelError('timeout', `The Meta API did not answer within ${Math.round(timeoutMs / 1000)}s.`, 504);
-        throw new ModelError('network', 'Could not reach the Meta API from the server.', 502);
+        // e.g. DNS failure, TLS error, or a proxy refusing the connection.
+        const parts = [];
+        for (let e = err, depth = 0; e && depth < 5; e = e.cause, depth++) {
+          if (e.code && typeof e.code === 'string') parts.push(e.code);
+          if (e.message && e.message !== 'fetch failed') parts.push(e.message);
+        }
+        const cause = sanitize(parts.join(': ') || String(err), apiKey);
+        throw new ModelError('network', 'Could not reach the Meta API from the server.', 502, { detail: cause });
       } finally {
         clearTimeout(timer);
       }
-      const body = await res.json().catch(() => null);
-      if (!res.ok) throw classifyHttpError(res.status, body);
+      const raw = await res.text().catch(() => '');
+      let body = null;
+      try {
+        body = JSON.parse(raw);
+      } catch {
+        // Not JSON; handled below.
+      }
+      if (!res.ok) throw classifyHttpError(res.status, body, apiKey, raw);
       const text = readText(body);
-      if (text == null) throw new ModelError('invalid-response', 'The Meta API answered in an unexpected format.', 502);
+      if (text == null) {
+        const keys = body && typeof body === 'object' ? Object.keys(body).join(', ') : 'non-JSON body';
+        throw new ModelError('invalid-response', 'The Meta API answered in an unexpected format.', 502, { upstreamStatus: res.status, detail: `top-level fields: ${keys}` });
+      }
       return text;
     },
   };

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildRequest, createMetaClient, ModelError, readText } from './meta.js';
+import { buildRequest, createMetaClient, ModelError, readText, sanitize } from './meta.js';
 
 const KEY = 'sk-test-secret-123';
-const reply = (status, body) => async () => ({ ok: status >= 200 && status < 300, status, json: async () => body });
+const reply = (status, body) => async () => ({ ok: status >= 200 && status < 300, status, text: async () => (typeof body === 'string' ? body : JSON.stringify(body)) });
 
 test('missing key: unavailable, and calls fail clearly without a request', async () => {
   let called = false;
@@ -21,7 +21,7 @@ test('sends model, messages and bearer auth to /chat/completions', async () => {
     model: 'muse-spark-1.3',
     fetchImpl: async (url, init) => {
       seen = { url, init };
-      return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"a":1}' } }] }) };
+      return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: '{"a":1}' } }] }) };
     },
   });
   assert.equal(await client.complete({ system: 'sys', user: 'usr' }), '{"a":1}');
@@ -56,10 +56,13 @@ test('HTTP errors map to safe, specific errors that never contain the key', asyn
     [404, 'bad-request'],
   ];
   for (const [status, code] of cases) {
-    const client = createMetaClient({ apiKey: KEY, fetchImpl: reply(status, { error: { message: `bad thing ${KEY}`.replace(KEY, '[redacted]') } }) });
+    // The upstream body echoes the key; it must be redacted everywhere.
+    const client = createMetaClient({ apiKey: KEY, fetchImpl: reply(status, { error: { message: `bad thing for key ${KEY}` } }) });
     await assert.rejects(client.complete({ system: 's', user: 'u' }), (e) => {
       assert.equal(e.code, code, String(status));
-      assert.ok(!e.message.includes(KEY));
+      assert.equal(e.upstreamStatus, status);
+      assert.ok(!e.message.includes(KEY) && !e.detail.includes(KEY), 'key leaked');
+      assert.match(e.detail, /bad thing for key \[REDACTED\]/);
       return true;
     });
   }
@@ -79,4 +82,12 @@ test('unexpected response shape, network failure and timeout', async () => {
       new Promise((_, reject) => init.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })))),
   });
   await assert.rejects(slow.complete({ system: 's', user: 'u' }), (e) => e.code === 'timeout' && e.status === 504);
+});
+
+test('sanitize redacts the key and bearer tokens, and non-JSON error bodies are kept as detail', async () => {
+  assert.equal(sanitize(`x ${KEY} y`, KEY), 'x [REDACTED] y');
+  assert.equal(sanitize('Authorization: Bearer abc.def-123', KEY), 'Authorization: Bearer [REDACTED]');
+  assert.equal(sanitize('z'.repeat(500), KEY).length, 300);
+  const html = createMetaClient({ apiKey: KEY, fetchImpl: reply(502, '<html>Bad Gateway</html>') });
+  await assert.rejects(html.complete({ system: 's', user: 'u' }), (e) => e.upstreamStatus === 502 && /Bad Gateway/.test(e.detail));
 });

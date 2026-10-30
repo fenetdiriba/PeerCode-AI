@@ -40,11 +40,17 @@ Open `http://localhost:3000`, click **Create a room**, then open the same URL in
 6. To show conflict safety, type something in the *other* browser. Apply is blocked ("the live code changed after this patch was verified"). Click **Re-verify against live code**.
 7. **Review patch**, then **Apply verified patch**. The edit goes through the shared Y.Doc for everyone and is saved as a new checkpoint. Run its tests from the timeline: 5/5.
 
-### Checking the real Meta API
+### Checking the real Meta API (run this first)
 ```bash
-MODEL_API_KEY=... npm run smoke:meta
+# .env is gitignored. Never commit it.
+echo 'MODEL_API_KEY=your-key-here' >> .env
+npm install
+npm run smoke:meta
 ```
-This runs the whole pipeline (locate → **real** Muse Spark call → validate → verify) without the UI and prints the model's answer and the verification result. If the request shape is wrong, the error says so (e.g. 400/404). Adjust `buildRequest` / `readText` in `server/meta.js`, or set `META_BASE_URL`, `META_MODEL`, or `META_JSON_MODE=off`.
+Step 1 sends one minimal request to `https://api.meta.ai/v1/chat/completions` (`muse-spark-1.3`), so a key, model or network problem shows up on its own. Step 2 runs the real workflow on the demo history: locate the regression, get a Muse Spark analysis and patch, validate it, verify it with the real tests, apply it as a new checkpoint, and re-test. On failure it prints the error code, Meta's HTTP status, the sanitized error detail (key redacted) and what to fix. The key is never printed.
+
+- `401`/`403`: bad or inactive key. `404`: model id or endpoint wrong (`META_MODEL`, `META_BASE_URL`). `400` mentioning `response_format`: re-run with `META_JSON_MODE=off`. `invalid-response`: the reply shape differs from what `readText()` in `server/meta.js` expects.
+- Behind an HTTP proxy (corporate network, some cloud sandboxes), Node's `fetch` ignores `HTTPS_PROXY` unless you run with `NODE_USE_ENV_PROXY=1` (Node ≥ 22.21).
 
 ## Architecture
 

@@ -154,7 +154,10 @@ export function createDebugger({ store, runner, model, challenges = CHALLENGES, 
         try {
           text = await model.complete({ system: SYSTEM_PROMPT, user: prompt });
         } catch (err) {
-          if (err instanceof ModelError) throw new HttpError(err.status, err.message, { code: `ai-${err.code}` });
+          if (err instanceof ModelError) {
+            // Sanitized upstream details (key redacted) help diagnose integration problems.
+            throw new HttpError(err.status, err.message, { code: `ai-${err.code}`, upstreamStatus: err.upstreamStatus, detail: err.detail });
+          }
           throw err;
         }
         const parsed = parseAnalysis(text, currentCode);

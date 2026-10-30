@@ -12,7 +12,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "test": "node --test"
+    "test": "node --test",
+    "smoke:meta": "node scripts/smoke-meta.mjs"
   },
   "engines": {
     "node": ">=20"

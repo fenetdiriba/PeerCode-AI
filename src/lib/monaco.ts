@@ -1,13 +1,19 @@
 // Monaco is loaded from the local `monaco-editor` package (not a CDN) so that
 // y-monaco, which imports monaco directly, shares the exact same instance.
 import * as monaco from 'monaco-editor';
-import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
-import TsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
 
+// Workers are loaded by file URL rather than `?worker` imports: on a cold cache Vite's dep
+// optimizer mishandles `monaco-editor/...?worker` and the room page fails to load in dev.
 self.MonacoEnvironment = {
   getWorker(_workerId: string, label: string) {
-    if (label === 'typescript' || label === 'javascript') return new TsWorker();
-    return new EditorWorker();
+    if (label === 'typescript' || label === 'javascript') {
+      return new Worker(new URL('../../node_modules/monaco-editor/esm/vs/language/typescript/ts.worker.js', import.meta.url), {
+        type: 'module',
+      });
+    }
+    return new Worker(new URL('../../node_modules/monaco-editor/esm/vs/editor/editor.worker.js', import.meta.url), {
+      type: 'module',
+    });
   },
 };
 

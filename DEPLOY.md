@@ -5,43 +5,101 @@ PeerCode has two parts that deploy separately:
 | Part | What it is | Where | Config in repo |
 | --- | --- | --- | --- |
 | **Frontend** | Static Vite build (landing, editor, match page) | Vercel | `vercel.json` |
-| **Server** | Node server: signaling, relay, matchmaking, debugger API and test runner | Railway (or Render) | `railway.json` / `render.yaml` |
+| **Server** | Node server: signaling, relay, matchmaking, debugger API and test runner | Render Free (or Railway) | `render.yaml` / `railway.json` |
 
 The server has to be a long-running process with WebSocket support, which is why it doesn't go on Vercel. It introduces browsers so they can sync directly over WebRTC. When a network blocks that (common on mobile data), it relays the room's updates between the two browsers instead. It never stores them.
 
 Deploy the **server first**, because the frontend needs its URL at build time.
 
-## 1. Server on Railway
+## 1. Server on Render Free ($0)
 
-1. Go to [railway.com](https://railway.com), sign in with GitHub.
-2. **New Project → Deploy from GitHub repo →** pick `PeerCode-AI`.
-   Railway reads `railway.json`: start command `npm start`, health check `/health`, no build step.
-3. Open the service → **Settings → Networking → Generate Domain**. You get something like
-   `https://peercode-ai-production.up.railway.app`. Copy it.
-4. Check it: open `https://<your-railway-domain>/health` in a browser. You should see
-   `{"ok":true,"queue":0,"connections":0}`.
+Render's free web service runs the server with **512 MB RAM, 0.1 CPU and no persistent disk**, and spins down after about 15 minutes without traffic.
 
-Leave `ALLOWED_ORIGINS` unset for now. You'll set it in step 3 once you know the Vercel URL.
+> **Storage is temporary.** On Render Free, checkpoints live in the instance's temp directory (`/tmp/peercode/revisions`). They work for as long as the instance runs, and are **erased by every restart, redeploy or spin-down**. Nothing else is lost: code and chat live in the browsers (Yjs), and each challenge's **Load demo scenario** rebuilds its history in one click. The timeline says this, and `/health` shows `"persistence": "ephemeral disk (...)"`.
+
+### Option A: Blueprint (uses `render.yaml`)
+1. [dashboard.render.com](https://dashboard.render.com) → **New → Blueprint** → connect GitHub → pick `PeerCode-AI` and the branch you deploy.
+2. Render reads `render.yaml`:
+   - free plan;
+   - build `npm ci`, start `npm run start`, health check `/health`;
+   - `NODE_VERSION=22`, `TEST_CONCURRENCY=1`, `AI_DAILY_LIMIT=150`;
+   - a generated `DEBUGGER_ACCESS_CODE`.
+3. It asks for the two secret variables **(you)**:
+   - `MODEL_API_KEY`: your Meta Model API key.
+   - `ALLOWED_ORIGINS`: your frontend address, e.g. `https://peer-code-ai.vercel.app`. If you don't know it yet, use a placeholder and fix it after step 2 below.
+4. **Apply.** The service URL looks like `https://peercode-server.onrender.com`.
+
+### Option B: Manual web service (same settings)
+**New → Web Service** → pick the repo, then:
+
+| Setting | Value |
+| --- | --- |
+| Runtime | Node |
+| Branch | the branch you deploy |
+| Build Command | `npm ci` |
+| Start Command | `npm run start` |
+| Instance Type | **Free** |
+| Health Check Path (Advanced) | `/health` |
+
+Environment variables:
+
+| Name | Value | Notes |
+| --- | --- | --- |
+| `NODE_VERSION` | `22` | The runner's permission model needs Node ≥ 22.13 (also pinned in `package.json`). |
+| `MODEL_API_KEY` | your Meta key | Server only. Never a `VITE_` variable, never committed. |
+| `ALLOWED_ORIGINS` | `https://<your-frontend-domain>` | Only your site may call the API. |
+| `DEBUGGER_ACCESS_CODE` | a long random string | Writes, test runs and AI calls need it. Give it to judges in the submission. |
+| `TEST_CONCURRENCY` | `1` | One test process at a time on 0.1 CPU. |
+| `AI_DAILY_LIMIT` | `150` | Caps model calls per day across all users. |
+
+**Do not set** `PORT` (Render sets it; the server binds `0.0.0.0:$PORT`), `EXECUTION_MODE`, or `META_AUTH`. The server refuses to start with `EXECUTION_MODE=local` or `META_AUTH=injected` on Render, because those are for local development only. Leave `REVISIONS_DIR` unset to use the temp directory.
+
+### Why the build command is `npm ci` and not `npm ci && npm run build`
+`npm run build` builds the **frontend** (Vite + Monaco), which is hosted on Vercel. The server runs from source and doesn't need it. Measured in a clean clone:
+
+| Step | Peak memory |
+| --- | --- |
+| `npm ci` | about 530 MB (npm itself) |
+| `npm run build` | **about 2.5 GB** |
+
+Running the frontend build on the free service would at best waste build minutes, and could fail for lack of memory. Both commands work; only `npm ci` belongs on this service.
+
+### Check it
+Open `https://<render-domain>/health`. The `debugger` object should show:
+```json
+{ "executionMode": "restricted", "executionAvailable": true, "isolation": { "ok": true, ... },
+  "networkRestricted": false, "persistence": "ephemeral disk (/tmp/peercode/revisions)",
+  "ai": true, "accessCodeRequired": true }
+```
+
+### Measured resource use (Render-like settings, clean clone, `TEST_CONCURRENCY=1`)
+| | |
+| --- | --- |
+| Server idle | about 70–145 MB RSS |
+| Peak during the full e2e (security checks + real Muse Spark on both challenges) | about 125–205 MB RSS, against the 512 MB limit |
+| One test process | about 42 MB RSS, ≤ 0.1 s CPU (64 MB heap cap, 8 s wall limit) |
+
+At 0.1 CPU a test run should take roughly 10× its CPU time (under a second), well inside the limits. Startup self-check timeout is 20 s. I couldn't measure on Render itself; if `/health` ever shows test timeouts, raise `TEST_TIMEOUT_MS` (e.g. `15000`).
+
+### Free-tier behaviour to plan the demo around
+- **Cold start:** after about 15 idle minutes, the first request wakes the service. That takes roughly 30–60 s, and checkpoints from before are gone. Open `/health` a minute before demoing, then click **Load demo scenario**.
+- **WebSockets** (signaling and relay) work on the free plan. They reconnect automatically after a restart.
 
 <details>
-<summary>Using Render instead</summary>
+<summary>Railway instead (paid after the trial; keeps checkpoints)</summary>
 
-1. [render.com](https://render.com) → **New → Blueprint** → pick the repo. It reads `render.yaml`.
-2. When asked for `ALLOWED_ORIGINS`, leave it blank for now.
-3. Your URL looks like `https://peercode-server.onrender.com`.
-
-On Render's free plan, the server sleeps after 15 minutes idle and takes ~30s to wake, so the first match or room after a quiet period is slow.
+Railway reads `railway.json`. Set the same variables (not `TEST_CONCURRENCY` if you have more CPU), and attach a volume at `/data` (**Settings → Volumes**). Railway then sets `RAILWAY_VOLUME_MOUNT_PATH` and checkpoints persist in `/data/revisions`.
 </details>
 
 ## 2. Frontend on Vercel
 
 1. Go to [vercel.com](https://vercel.com), sign in with GitHub.
 2. **Add New → Project →** import `PeerCode-AI`. Vercel detects Vite from `vercel.json`.
-3. Before deploying, open **Environment Variables** and add:
+3. Before deploying, open **Environment Variables** and add (or, if the project exists, update it and redeploy):
 
    | Name | Value |
    | --- | --- |
-   | `VITE_SERVER_URL` | your Railway URL from step 1, e.g. `https://peercode-ai-production.up.railway.app` |
+   | `VITE_SERVER_URL` | your server URL from step 1, e.g. `https://peercode-server.onrender.com` |
 
    `https://` is fine; the app converts it to `wss://`.
 4. **Deploy.** You get a URL like `https://peercode-ai.vercel.app`.
@@ -50,29 +108,29 @@ On Render's free plan, the server sleeps after 15 minutes idle and takes ~30s to
 
 ## 3. Lock the server to your site
 
-Back on Railway → your service → **Variables** → add:
+Back on Render → your service → **Environment** → set:
 
 | Name | Value |
 | --- | --- |
 | `ALLOWED_ORIGINS` | `https://peercode-ai.vercel.app,https://peercode-ai-*.vercel.app` |
 
-Use your real Vercel domain. The `*` entry allows Vercel's preview deployments (one per PR). Railway redeploys automatically. Without this, any website could use your server.
+Use your real Vercel domain. The `*` entry allows Vercel's preview deployments (one per PR). Saving restarts the service, which clears checkpoints on Render Free. Without this, any website could use your server.
 
 ## 4. Turn on AI hints (Gemini)
 
 1. Get a free key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey) → **Create API key**. Treat it like a password: don't commit it or paste it anywhere public.
-2. Railway → your service → **Variables** → add:
+2. Render → your service → **Environment** → add:
 
    | Name | Value |
    | --- | --- |
    | `GEMINI_API_KEY` | your key |
 
-   Railway redeploys on its own. The key only lives on the server; the browser never sees it.
-3. Check: `https://<your-railway-domain>/health` should now show `"ai":true`.
+   Saving restarts the service. The key only lives on the server; the browser never sees it.
+3. Check: `https://<your-render-domain>/health` should now show `"ai":true`.
 
 Optional: `GEMINI_MODEL` (one or more models, comma-separated, tried in order; by default the server tries `gemini-flash-latest`, then `gemini-2.5-flash`, then `gemini-2.0-flash`) and `AI_REQUESTS_PER_10_MIN` (per-IP limit, default 20).
 
-If an AI request fails, the prompt bar says why (invalid key, quota used up, region not supported, and so on). The full Gemini error is in Railway → **Deployments → View logs**.
+If an AI request fails, the prompt bar says why (invalid key, quota used up, region not supported, and so on). The full Gemini error is in Render → your service → **Logs**.
 
 ## 5. Smoke test
 
@@ -86,11 +144,12 @@ Click the status text in the bottom-left of a room to open the **Connection** pa
 
 | Symptom | Likely cause |
 | --- | --- |
-| Red dot, "Can't reach the server" | `VITE_SERVER_URL` missing or wrong on Vercel, or you didn't redeploy after setting it. Or `ALLOWED_ORIGINS` on Railway doesn't match the site's exact address. |
+| Red dot, "Can't reach the server" | `VITE_SERVER_URL` missing or wrong on Vercel, or you didn't redeploy after setting it. Or `ALLOWED_ORIGINS` on the server doesn't match the site's exact address. On Render Free the first request after idling can take about a minute (cold start). |
 | "Can't reach the matchmaking server" | Same as above. |
 | Yellow, "waiting for peers", while your partner is in the room | You're in different rooms (compare the room code at the top), or one side is on an old deploy. Hard-refresh both. |
-| "AI hints aren't set up on this server yet" | `GEMINI_API_KEY` isn't set on Railway (or the redeploy hasn't finished). `/health` shows `"ai":false`. |
-| "The AI request failed" | Usually an invalid key or quota. Railway → **Deployments → View logs** shows the Gemini error. |
+| "AI hints aren't set up on this server yet" | `GEMINI_API_KEY` isn't set on the server (or the restart hasn't finished). `/health` shows `"ai":false`. |
+| "The AI request failed" | Usually an invalid key or quota. Render → **Logs** shows the Gemini error. |
+| Timeline empty / "That checkpoint no longer exists" | The free server restarted or spun down and its temporary checkpoints are gone. Click **Load demo scenario** for the challenge you want. |
 | Green, "via server relay" | Working as intended: a direct connection wasn't possible on this network, so edits go through the server. Adding a TURN server (below) can make it direct. |
 
 ### TURN (optional)
@@ -108,45 +167,20 @@ then redeploy.
 - The matchmaking queue lives in the server's memory. That's fine for one instance. Scaling to several instances would need a shared store like Redis.
 - Each IP can hold 20 WebSocket connections at once (`MAX_CONNECTIONS_PER_IP`).
 
-## Time-travel debugger (secure setup)
-
-The debugger runs tests on the server, so set it up in this order. Steps marked **(you)** need your Railway account or a credential. Nothing here should ever be committed or pasted in chat.
+## Time-travel debugger: security and verification
 
 ### What the server will and won't run
-The public server runs in `EXECUTION_MODE=restricted` (the default). It only executes code whose hash is on a server-side allowlist: the built-in scenario checkpoints, plus patches it generated and verified itself. Visitors can type and checkpoint anything, but their code never runs, and the AI only ever sees server-owned code. The runner is a constrained child process (no file writes, subprocesses, workers, env vars or `eval`; checked at startup), but **outbound network from test processes is not blocked**. That's why restricted mode is the default and `EXECUTION_MODE=local` is refused on Railway and Render.
+The public server runs in `EXECUTION_MODE=restricted` (the default):
+- It only executes code whose hash is on a server-side allowlist: the built-in scenario checkpoints, plus patches it generated and verified itself.
+- Visitors can type and checkpoint anything, but their code never runs, and the AI only ever sees server-owned code.
+- The runner is a constrained child process: no file writes, subprocesses, workers, env vars or `eval`, all checked at startup.
 
-### 1. Variables **(you)**
-Railway → your service → **Variables**:
+**Outbound network from test processes is not blocked.** That's why restricted mode is the default and `EXECUTION_MODE=local` is refused on Render and Railway. On Render Free this is unchanged: the allowlist lives in memory and is rebuilt at every start.
 
-| Name | Value | Why |
-| --- | --- | --- |
-| `MODEL_API_KEY` | your Meta Model API key | Muse Spark analysis. Server only; never a `VITE_` variable. |
-| `ALLOWED_ORIGINS` | `https://<your-vercel-domain>` | Only your site may call the API. |
-| `DEBUGGER_ACCESS_CODE` | a long random string | Recommended for a public demo: writes, test runs and AI calls need it. Give it to judges in the submission, not in the repo. |
-| `AI_DAILY_LIMIT` | e.g. `150` | Caps model calls per day across everyone (default 200). |
-
-**Do not** set `EXECUTION_MODE` (the server refuses `local` on a host) or `META_AUTH` (`injected` is for the Claude Code dev proxy only, and is refused on a host).
-
-### 2. Persistent checkpoints **(you)**
-Railway → your service → **Settings → Volumes → Add volume**, mount path `/data`. Railway then sets `RAILWAY_VOLUME_MOUNT_PATH`, and checkpoints go to `/data/revisions` automatically (`REVISIONS_DIR` overrides this). Without a volume the server logs `WARNING: no Railway volume attached` and checkpoints vanish on every redeploy. Keep **one replica**: analyses and rate limits live in memory.
-
-### 3. Node version
-`package.json` pins Node `22.x` (`.nvmrc` too). The runner's permission model needs Node ≥ 22.13. If the host picks another version and the startup self-check fails, test execution is disabled (`/health` shows `executionAvailable: false`) rather than running unconstrained.
-
-### 4. Check `/health`
-`https://<railway-domain>/health` → `debugger` should show:
-```json
-{ "executionMode": "restricted", "executionAvailable": true, "isolation": { "ok": true, ... },
-  "networkRestricted": false, "persistence": "volume (/data/revisions)", "ai": true, "accessCodeRequired": true }
-```
-
-### 5. Redeploy the frontend **(you)**
-Vercel → **Deployments → Redeploy**, so the site picks up the debugger UI (`VITE_SERVER_URL` is unchanged).
-
-### 6. End-to-end check against the deployment
-Security checks run first. If any fail, the script stops before spending API credits.
+### End-to-end check against the deployment
+Security checks run first; if any fail, the script stops before spending API credits.
 ```bash
-SERVER_URL=https://<railway-domain> FRONTEND_ORIGIN=https://<vercel-domain> PEERCODE_ACCESS_CODE=<code> node e2e/deployed-api.mjs --expect-volume
+SERVER_URL=https://<render-domain> FRONTEND_ORIGIN=https://<vercel-domain> PEERCODE_ACCESS_CODE=<code> node e2e/deployed-api.mjs
 ```
 ```bash
 BASE_URL=https://<vercel-domain> PEERCODE_ACCESS_CODE=<code> node e2e/browser-flow-cart.cjs
@@ -157,7 +191,7 @@ BASE_URL=https://<vercel-domain> PEERCODE_ACCESS_CODE=<code> node e2e/browser-fl
 ```bash
 BASE_URL=https://<vercel-domain> PEERCODE_ACCESS_CODE=<code> node e2e/browser-security.cjs
 ```
-Then redeploy the server once and confirm an earlier room's timeline is still there (volume check).
+Run these after a cold start has finished (open `/health` first). On a host with a volume, add `--expect-volume` to the first command.
 
 ### Costs and limits
-Each analysis is about 2–3.5k tokens (see [docs/EVALUATION.md](docs/EVALUATION.md)). Test runs are child Node processes (64 MB heap, 8 s limit, 2 at a time). Per-IP limits: 60 test runs/min, 20 AI calls/10 min.
+Each analysis uses about 2–3.5k tokens (see [docs/EVALUATION.md](docs/EVALUATION.md)). Test runs are child Node processes: 64 MB heap, 8 s limit, `TEST_CONCURRENCY` at a time. Per-IP limits: 60 test runs/min and 20 AI calls/10 min, plus `AI_DAILY_LIMIT` overall.

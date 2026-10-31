@@ -56,7 +56,8 @@ Legend: `[x]` done and verified · `[~]` implemented, not fully verified · `[ ]
 - [x] Run the demo with the real Meta API (see Phase 4)
 - [x] Repeated real-Meta evaluation: 10/10 on both challenges (docs/EVALUATION.md)
 - [x] Hackathon kit (docs/HACKATHON.md), architecture (docs/ARCHITECTURE.md), README centered on the debugger
-- [ ] Deploy: Railway variables + volume + frontend redeploy (needs the owner's Railway/Vercel access; see DEPLOY.md)
+- [x] Render Free prep: render.yaml, 0.0.0.0:$PORT, temp-dir checkpoints with startup check, TEST_CONCURRENCY, lost-history recovery, measured memory
+- [ ] Deploy on Render Free + redeploy Vercel frontend (needs the owner's Render/Vercel access; see DEPLOY.md)
 - [ ] Run e2e/ against the deployed URLs (needs the deployment above)
 - [ ] Demo video / screenshots for the submission
 

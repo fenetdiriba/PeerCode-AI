@@ -45,9 +45,10 @@ const dbg = health.body?.debugger;
 check(health.status === 200 && health.body?.ok, 'GET /health answers ok', `HTTP ${health.status}`);
 check(dbg?.executionMode === 'restricted', 'execution mode is restricted', dbg?.executionMode);
 check(dbg?.executionAvailable === true && dbg?.isolation?.ok === true, 'runner isolation self-check passed on the server', JSON.stringify(dbg?.isolation?.checks ?? dbg?.isolation));
-check(dbg?.ai === true, 'Meta AI configured (MODEL_API_KEY present on the server)');
+if (noAi) console.log(`info  Meta AI configured: ${dbg?.ai} (not required with --no-ai)`);
+else check(dbg?.ai === true, 'Meta AI configured (MODEL_API_KEY present on the server)');
 if (expectVolume) check(String(dbg?.persistence).startsWith('volume'), 'checkpoints stored on a persistent volume', dbg?.persistence);
-else console.log(`info  checkpoint storage: ${dbg?.persistence}`);
+else console.log(`info  checkpoint storage: ${dbg?.persistence}${String(dbg?.persistence).startsWith('ephemeral') ? ' (temporary: lost on restart)' : ''}`);
 console.log(`info  access code required: ${dbg?.accessCodeRequired}; outbound network from test processes restricted: ${dbg?.networkRestricted}`);
 
 // ---- 2. Security checks ----------------------------------------------------------------

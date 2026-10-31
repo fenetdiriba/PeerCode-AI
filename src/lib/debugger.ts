@@ -166,6 +166,7 @@ export const debuggerApi = {
       challenges: Challenge[];
       ai: { available: boolean; model: string };
       execution: { mode: 'restricted' | 'local'; available: boolean };
+      storage: { ephemeral: boolean };
       access: { required: boolean };
     }>('GET', '/challenges'),
   listRevisions: (roomId: string) => api<{ revisions: CodeRevision[] }>('GET', `/rooms/${roomId}/revisions`),

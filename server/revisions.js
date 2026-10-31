@@ -90,6 +90,19 @@ export function createRevisionStore({ dir = null, now = () => new Date(), maxRoo
   }
 
   return {
+    dir,
+    /**
+     * Create the storage directory and prove it's writable, so a bad path fails at startup
+     * instead of on the first checkpoint. No-op for an in-memory store.
+     */
+    async init() {
+      if (!dir) return;
+      await fs.mkdir(dir, { recursive: true });
+      const probe = path.join(dir, `.write-probe-${process.pid}`);
+      await fs.writeFile(probe, 'ok');
+      await fs.rm(probe, { force: true });
+    },
+
     /** @returns {Promise<CodeRevision[]>} oldest first */
     list: (roomId) => serialize(roomId, async () => [...(await load(roomId))]),
 

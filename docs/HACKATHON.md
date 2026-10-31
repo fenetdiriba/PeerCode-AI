@@ -66,3 +66,4 @@ Setup beforehand:
 - Two predefined challenges; the public demo doesn't run visitor-written code (local mode does).
 - The runner is constrained, not sandboxed: outbound network isn't blocked. Real container or microVM isolation is future work.
 - Regression reports and analyses are per-viewer. Code, chat, checkpoints and the active challenge are shared.
+- The demo server runs on Render Free: checkpoints are temporary and the first request after idling wakes it (about 30–60 s). Open `/health` a minute before demoing, then **Load demo scenario**.

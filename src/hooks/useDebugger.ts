@@ -41,7 +41,12 @@ export function useDebugger(roomId: string, session: RoomSession | null, authorN
   const [challenges, setChallenges] = useState<Challenge[]>([]);
   const [challengeId, setChallengeId] = useState<string | null>(null);
   const [ai, setAi] = useState<{ available: boolean; model: string } | null>(null);
-  const [server, setServer] = useState<{ executionMode: 'restricted' | 'local'; executionAvailable: boolean; accessRequired: boolean } | null>(null);
+  const [server, setServer] = useState<{
+    executionMode: 'restricted' | 'local';
+    executionAvailable: boolean;
+    accessRequired: boolean;
+    ephemeralStorage: boolean;
+  } | null>(null);
   const [needsAccessCode, setNeedsAccessCode] = useState(false);
   const [allRevisions, setAllRevisions] = useState<CodeRevision[]>([]);
   const [runs, setRuns] = useState<Record<string, RunSummary>>({});
@@ -63,10 +68,10 @@ export function useDebugger(roomId: string, session: RoomSession | null, authorN
   useEffect(() => {
     debuggerApi
       .challenges()
-      .then(({ challenges, ai, execution, access }) => {
+      .then(({ challenges, ai, execution, access, storage }) => {
         setChallenges(challenges);
         setAi(ai);
-        setServer({ executionMode: execution.mode, executionAvailable: execution.available, accessRequired: access.required });
+        setServer({ executionMode: execution.mode, executionAvailable: execution.available, accessRequired: access.required, ephemeralStorage: storage.ephemeral });
         setNeedsAccessCode(access.required && !accessCode.get());
         setServerError(null);
       })
@@ -112,6 +117,12 @@ export function useDebugger(roomId: string, session: RoomSession | null, authorN
   const fail = (e: unknown) => {
     const err = e as ApiError;
     if (err.code === 'access-code-required') setNeedsAccessCode(true);
+    if (err.code === 'checkpoint-not-found' || err.code === 'analysis-not-found') {
+      // The server restarted and forgot its history: drop stale results and show what's left.
+      resetPipeline();
+      setView({ kind: 'live' });
+      refresh();
+    }
     setError({ message: err.message, code: err.code });
   };
 

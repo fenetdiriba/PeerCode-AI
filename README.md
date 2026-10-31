@@ -26,12 +26,12 @@ Most AI assistants explain the code you paste and hand back a suggestion. PeerCo
 | Capability | State |
 |---|---|
 | Real-time two-browser editing (Yjs CRDT over WebRTC + relay) | Working; verified with Playwright in isolated browser contexts. |
-| Persistent checkpoints, time travel, diffs | Working; survives refresh and restart (JSON per room, Railway volume in production). |
+| Checkpoints, time travel, diffs | Working; survive page refreshes. On **Render Free** they're temporary (lost on restart, redeploy or spin-down) and **Load demo scenario** rebuilds either challenge. A host with a volume keeps them. |
 | Regression localization | Working; 64/64 on generated histories ([BENCHMARK](docs/BENCHMARK.md)); 10/10 on the real-API evaluation. |
 | Muse Spark analysis (`muse-spark-1.3`, strict `json_schema`) | Working with the real API: 10/10 valid on the first attempt, root cause named 10/10 ([EVALUATION](docs/EVALUATION.md)). |
 | Isolated verification + conflict-safe apply | Working; unit, HTTP and two-browser tests against the real model. |
 | Public-server safety | Restricted execution (visitor code never runs), startup isolation self-check, access code, origin allowlist, AI daily cap. Outbound network from the runner is **not** blocked; see [Execution safety](#execution-safety). |
-| Deployment | Configured and tested against production-like servers. **Not yet deployed**: needs Railway variables and a volume ([DEPLOY.md](DEPLOY.md)). The live site still runs the older editor. |
+| Deployment | Ready for **Render Free** ($0): `render.yaml`, tested from a clean clone with Render-like settings (security suite + real Muse Spark, ≤ 205 MB peak of 512 MB). **Not yet deployed**: needs your Render and Vercel setup ([DEPLOY.md](DEPLOY.md)). |
 
 ## Quick start
 ```bash
@@ -105,7 +105,9 @@ At startup the server checks that these restrictions actually hold and **disable
 | `EXECUTION_MODE` | `restricted` (default) or `local` (dev machines only). |
 | `DEBUGGER_ACCESS_CODE` | Optional code required for writes, test runs and AI calls. |
 | `AI_DAILY_LIMIT` | Model calls per UTC day across all users (default 200). |
-| `REVISIONS_DIR` | Checkpoint storage; defaults to `$RAILWAY_VOLUME_MOUNT_PATH/revisions` on Railway, else `./data/revisions`. |
+| `REVISIONS_DIR` | Checkpoint storage. Defaults: `$RAILWAY_VOLUME_MOUNT_PATH/revisions` with a Railway volume; the OS temp dir on a host without one (Render Free: temporary); `./data/revisions` locally. |
+| `TEST_CONCURRENCY` | Test processes at once (default 2; `1` on Render Free). |
+| `HOST` / `PORT` | Bind address and port (defaults `0.0.0.0` / `4444`; Render sets `PORT`). |
 | `TEST_TIMEOUT_MS` | Wall-clock limit per test run (default 8000). |
 | `ALLOWED_ORIGINS`, `MAX_CONNECTIONS_PER_IP`, `GEMINI_API_KEY`, … | See `server/index.js`. |
 
@@ -121,13 +123,13 @@ node e2e/deployed-api.mjs   # against a running server: security checks first, t
 Automated tests use a **scripted model**. The real model runs only through `smoke:meta`, `eval:meta`, the e2e scripts, and the UI.
 
 ## Deploying
-Railway (server) + Vercel (frontend): see **[DEPLOY.md](DEPLOY.md)**. It covers the secure debugger setup: variables, a volume for checkpoints, access code, and verifying the deployment with `e2e/`.
+Render Free (server, $0) + Vercel (frontend): see **[DEPLOY.md](DEPLOY.md)** for exact settings, environment variables, the measured memory use, and how to verify the deployment with `e2e/`. Railway with a volume is the paid alternative that keeps checkpoints.
 
 ## Limitations
 - Two predefined challenges. The public demo never runs visitor-written code (local mode does).
 - The runner is constrained, not sandboxed (network open). Real isolation is future work.
 - Regression reports and analyses are per-viewer. Code, chat, checkpoints and the active challenge are shared.
-- Checkpoint storage is a JSON file per room on a single instance.
+- Checkpoint storage is a JSON file per room on a single instance. On Render Free it's temporary: history disappears on restart, redeploy or spin-down, and users reload a demo scenario.
 - The evaluation is 10 trials on two seeded bugs with generous context: evidence of reliability, not of general debugging ability.
 
 ## Project layout

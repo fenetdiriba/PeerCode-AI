@@ -117,6 +117,11 @@ export default function TimelinePanel({ dbg }: { dbg: DebuggerState }) {
           {busy === 'demo' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FlaskConical className="h-3.5 w-3.5" />}
           Load demo scenario
         </button>
+        {dbg.server?.ephemeralStorage && (
+          <p className="px-1 text-[10px] leading-snug text-neutral-500">
+            Demo server: checkpoints are temporary and disappear when the server restarts. Load demo scenario rebuilds the selected challenge anytime.
+          </p>
+        )}
         <button
           onClick={dbg.insertStarter}
           disabled={busy !== null || !dbg.challenge}

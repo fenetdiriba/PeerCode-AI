@@ -83,3 +83,14 @@ test('room cap: new rooms are refused once the limit is reached; existing rooms 
   assert.equal((await store.create('r1', { sourceCode: 'b', challengeId: 'c' })).sequenceNumber, 2);
   await fs.rm(dir, { recursive: true, force: true });
 });
+
+test('init creates the storage directory and proves it is writable', async () => {
+  const dir = path.join(await tmpDir(), 'nested', 'revisions');
+  await createRevisionStore({ dir }).init();
+  assert.deepEqual(await fs.readdir(dir), []); // the probe file is cleaned up
+  // A directory "inside" a regular file can't be created (ENOTDIR), even as root.
+  const file = path.join(await tmpDir(), 'a-file');
+  await fs.writeFile(file, 'x');
+  await assert.rejects(createRevisionStore({ dir: path.join(file, 'revisions') }).init(), (e) => e.code === 'ENOTDIR');
+  await createRevisionStore().init(); // in-memory: no-op
+});

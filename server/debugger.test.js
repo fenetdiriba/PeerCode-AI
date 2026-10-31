@@ -301,3 +301,32 @@ test('failed isolation self-check disables execution; daily AI cap is enforced',
     assert.equal(second.body.code, 'ai-daily-limit');
   }, { aiDailyLimit: 1 });
 });
+
+test('ephemeral storage: after a restart history is gone, stale ids say so, and the demo reloads', async () => {
+  // First "instance": seed a room.
+  let oldIds;
+  await withServer(scriptedModel([]).client, async (call) => {
+    oldIds = await seedDemo(call, 'restart');
+    const ch = await call('GET', '/challenges');
+    assert.equal(ch.body.storage.ephemeral, true);
+  }, { persistence: 'ephemeral disk (/tmp/peercode/revisions)' });
+
+  // Second "instance" with fresh (empty) temporary storage.
+  await withServer(scriptedModel([]).client, async (call) => {
+    assert.deepEqual((await call('GET', '/rooms/restart/revisions')).body.revisions, []);
+    const stale = await call('POST', `/rooms/restart/revisions/${oldIds[0]}/test`);
+    assert.equal(stale.status, 404);
+    assert.equal(stale.body.code, 'checkpoint-not-found');
+    // Reloading either challenge's demo works on the empty store.
+    for (const c of Object.values(CHALLENGES)) {
+      const ids = [];
+      for (const s of c.demoSteps) ids.push((await call('POST', '/rooms/restart/revisions', { sourceCode: s.code, label: s.label, challengeId: c.id })).body.revision.id);
+      const { body } = await call('POST', '/rooms/restart/regression', { challengeId: c.id });
+      assert.equal(body.report.firstFailingRevisionId, ids[2], c.id);
+    }
+  }, { persistence: 'ephemeral disk (/tmp/peercode/revisions)' });
+
+  await withServer(scriptedModel([]).client, async (call) => {
+    assert.equal((await call('GET', '/challenges')).body.storage.ephemeral, false);
+  }, { persistence: 'volume (/data/revisions)' });
+});

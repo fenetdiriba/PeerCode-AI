@@ -126,7 +126,9 @@ export function createDebugger({
 
   const getRevision = async (roomId, id) => {
     const rev = typeof id === 'string' ? await store.get(roomId, id) : undefined;
-    if (!rev) throw new HttpError(404, 'Checkpoint not found.');
+    if (!rev) {
+      throw new HttpError(404, 'That checkpoint no longer exists. The server may have restarted (free hosting keeps no history); load the demo scenario again.', { code: 'checkpoint-not-found' });
+    }
     return rev;
   };
 
@@ -139,6 +141,8 @@ export function createDebugger({
     // parts: path split after "/api"
     if (parts[0] === 'challenges' && parts.length === 1 && method === 'GET') {
       return {
+        // Only a volume (or a developer's local dir) survives restarts.
+        storage: { ephemeral: !persistence.startsWith('volume') && !persistence.startsWith('local dir') },
         challenges: Object.values(challenges).map(publicChallenge),
         ai: { available: model.available, model: model.model },
         execution: { mode: policy.mode, available: executionAvailable },

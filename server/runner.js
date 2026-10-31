@@ -170,7 +170,8 @@ process.stdout.write(JSON.stringify(out));
  * Network is NOT checked or restricted; callers must not treat a pass as a sandbox.
  * @returns {Promise<{ ok: boolean, nodeVersion: string, checks: Record<string, boolean>, error?: string }>}
  */
-export function checkIsolation({ nodePath = process.execPath, timeoutMs = 5000 } = {}) {
+// Generous timeout: on a throttled host (e.g. 0.1 CPU) Node start-up alone can take seconds.
+export function checkIsolation({ nodePath = process.execPath, timeoutMs = 20_000 } = {}) {
   return new Promise((resolve) => {
     const done = (r) => resolve({ nodeVersion: process.version, ...r });
     let child;

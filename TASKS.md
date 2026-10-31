@@ -54,8 +54,22 @@ Legend: `[x]` done and verified · `[~]` implemented, not fully verified · `[ ]
 - [x] README: status, setup, demo script, architecture, trade-offs, safety, limitations
 - [x] Measured results with methodology (docs/BENCHMARK.md)
 - [x] Run the demo with the real Meta API (see Phase 4)
-- [ ] Redeploy server + frontend (Railway volume for REVISIONS_DIR; MODEL_API_KEY)
+- [x] Repeated real-Meta evaluation: 10/10 on both challenges (docs/EVALUATION.md)
+- [x] Hackathon kit (docs/HACKATHON.md), architecture (docs/ARCHITECTURE.md), README centered on the debugger
+- [ ] Deploy: Railway variables + volume + frontend redeploy (needs the owner's Railway/Vercel access; see DEPLOY.md)
+- [ ] Run e2e/ against the deployed URLs (needs the deployment above)
 - [ ] Demo video / screenshots for the submission
+
+## Phase 7: Public-server security
+- [x] Restricted execution mode by default: SHA-256 allowlist (scenario code + server-verified patches); visitor code never runs
+- [x] Analyze accepts only allowlisted code (no visitor text in prompts); verify only by server-issued analysisId
+- [x] Model edits screened for escape-style tokens (defense in depth)
+- [x] Startup isolation self-check (fs write, subprocess, worker, env, eval); execution disabled on failure
+- [x] Hosted guards: EXECUTION_MODE=local and META_AUTH=injected refused on Railway/Render
+- [x] Access code (timing-safe), origin allowlist, per-IP limits, global AI daily cap, room cap
+- [x] Node 22.x pinned; Railway volume auto-detected; /health reports the security posture
+- [x] Verified: 12 security tests, browser security check, deployed-API suite against production-like servers
+- [ ] Not done: network isolation of the runner (needs a container/microVM host)
 
 ## Next (if time allows, in priority order)
 1. Real isolation for the runner (container with `--network none`, or a microVM)

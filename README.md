@@ -2,157 +2,155 @@
 
 > **Find the moment your code broke. Understand why. Fix it with proof.**
 
-PeerCodeAI is a real-time collaborative code editor that can debug regressions in the code two people write together. It records explicit checkpoints of the shared document, runs real tests against them to find the **first observed failing checkpoint**, shows the diff that introduced the failure, asks **Meta Muse Spark** for a root-cause explanation and a minimal patch, **verifies that patch by running the tests on an isolated copy**, and only then lets a person apply it to the shared document. If anyone edited the code in the meantime, apply is blocked until the patch is verified again.
+PeerCodeAI is a real-time collaborative code editor that debugs regressions in the code people write together:
+1. It records checkpoints of the shared document.
+2. It runs real tests over that history to find the **first observed failing checkpoint**, and shows the diff that introduced the failure.
+3. **Meta Muse Spark** explains the root cause and proposes a minimal patch.
+4. The patch is **verified by running the tests on an isolated copy**.
+5. A person applies it, and only if nobody has edited the code since it was verified.
 
-Built for the Meta Global AI Developer Hackathon (Indie Track).
+Built for the Meta Global AI Developer Hackathon (Indie Track). Submission kit: [docs/HACKATHON.md](docs/HACKATHON.md) · Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Real-API evaluation: [docs/EVALUATION.md](docs/EVALUATION.md)
 
 ```
 Edit together → Checkpoint → Locate regression → Explain (Muse Spark) → Verify (real tests) → Review & apply
 ```
 
-## Status
+## Why it's different
+Most AI assistants explain the code you paste and hand back a suggestion. PeerCodeAI works differently:
+- it **finds when** the bug appeared by running tests over recorded history;
+- it gives the model the **exact diff and failing inputs**;
+- it **proves** the fix against real tests before anyone can apply it;
+- it **refuses to overwrite a collaborator** whose edits arrived after that proof.
 
+## Status
 | Capability | State |
 |---|---|
-| Two-browser real-time editing (Yjs CRDT over WebRTC + relay fallback) | Working. Verified with Playwright in two isolated browser contexts. |
-| Persistent checkpoints, time travel, diffs | Working. Survives page refresh and server restart (JSON files). |
-| Test execution + regression localization | Working. 64/64 correct on a generated benchmark ([docs/BENCHMARK.md](docs/BENCHMARK.md)). |
-| Patch validation, isolated verification, conflict-safe apply | Working. Covered by unit, HTTP and browser tests. |
-| Meta Muse Spark call | **Working with the real API.** On 2026-10-31, `npm run smoke:meta` and the two-browser UI flow both ran against `muse-spark-1.3`: regression found at #3, Muse Spark returned a valid patch in about 5 s, 5/5 tests passed on the patched copy, the patch was applied and the re-test passed 5/5. The request format was checked against Meta's docs. |
-| Live site ([peer-code-ai.vercel.app](https://peer-code-ai.vercel.app)) | Has the collaborative editor. The debugger needs a redeploy of both server and frontend. |
+| Real-time two-browser editing (Yjs CRDT over WebRTC + relay) | Working; verified with Playwright in isolated browser contexts. |
+| Persistent checkpoints, time travel, diffs | Working; survives refresh and restart (JSON per room, Railway volume in production). |
+| Regression localization | Working; 64/64 on generated histories ([BENCHMARK](docs/BENCHMARK.md)); 10/10 on the real-API evaluation. |
+| Muse Spark analysis (`muse-spark-1.3`, strict `json_schema`) | Working with the real API: 10/10 valid on the first attempt, root cause named 10/10 ([EVALUATION](docs/EVALUATION.md)). |
+| Isolated verification + conflict-safe apply | Working; unit, HTTP and two-browser tests against the real model. |
+| Public-server safety | Restricted execution (visitor code never runs), startup isolation self-check, access code, origin allowlist, AI daily cap. Outbound network from the runner is **not** blocked; see [Execution safety](#execution-safety). |
+| Deployment | Configured and tested against production-like servers. **Not yet deployed**: needs Railway variables and a volume ([DEPLOY.md](DEPLOY.md)). The live site still runs the older editor. |
 
 ## Quick start
-
 ```bash
 npm install
-cp .env.example .env        # then set MODEL_API_KEY for Meta AI (optional)
+cp .env.example .env        # set MODEL_API_KEY; add EXECUTION_MODE=local to test your own edits locally
 npm run dev:all             # server on :4444, app on :3000
 ```
+Open `http://localhost:3000`, click **Create a room**, and open the same URL in a second browser.
 
-Open `http://localhost:3000`, click **Create a room**, then open the same URL in a second browser (or a private window).
+### Demo: shopping cart (TypeScript)
+1. The **Debugger** view is on by default on wide screens (toggle it in the top bar).
+2. **Load demo scenario** replays a two-developer history through the live editor and saves 5 real checkpoints. #3, Developer B's "Simplify reducer", drops `* item.quantity`.
+3. Click a checkpoint to **time travel**: a read-only diff opens and the live document is untouched.
+4. **Locate regression**: #2 last passing, #3 first observed failing, with the failing cases (`expected 12, got 4`).
+5. **Analyze & generate fix**: Muse Spark returns what failed, what changed, the root cause, its uncertainty and find/replace edits. They're verified automatically: **Candidate generated → Verification running → Tests passed / Tests failed / Verification error**.
+6. Type in the *other* browser: **Apply** is blocked because the proof was about different code. Undo the edit (in local mode you can also **Re-verify against live code**).
+7. **Apply verified patch**: the edit reaches everyone through the CRDT and becomes checkpoint #6 (5/5).
 
-### Demo (about 2 minutes)
-1. In the room, the **Debugger** view is on by default on wide screens (toggle it in the top bar).
-2. Click **Load demo scenario** (bottom left). This replays a two-developer history through the live editor and saves 5 real checkpoints: a working `calculateTotal`, a harmless helper, Developer B's "Simplify reducer" (which drops `* item.quantity`), and two more edits on top. The second browser sees the code and the timeline update.
-3. Click any checkpoint to **time travel**: a read-only diff opens and the live document is untouched.
-4. Click **Locate regression**. The server runs the 5 predefined tests on checkpoints, reports `#2` as last passing and `#3` as first observed failing, and opens the `#2 → #3` diff with the failing cases (`expected 12, got 4`).
-5. Click **Analyze & generate fix**. Muse Spark returns: what failed, what changed, the probable root cause, the uncertainty, and a find/replace patch. The patch is validated, applied to an isolated copy, and the tests run again. You'll see **Candidate generated → Verification running → Tests passed / Tests failed / Verification error**.
-6. To show conflict safety, type something in the *other* browser. Apply is blocked ("the live code changed after this patch was verified"). Click **Re-verify against live code**.
-7. **Review patch**, then **Apply verified patch**. The edit goes through the shared Y.Doc for everyone and is saved as a new checkpoint. Run its tests from the timeline: 5/5.
+### Demo: stale-response race (JavaScript, async)
+Pick **Typeahead search: stale responses** in the challenge list (it syncs to the room), then load its demo. A `createSearch(fetchResults)` store drops out-of-order responses with a request counter. At #3 an "extract `runSearch` helper" refactor moves `++latestRequest` into the helper. The diff looks harmless, but clearing the input no longer invalidates the request in flight: type "rea", clear the box, and the old response fills the empty search box. The 8 tests are deterministic scenarios: deferred promises resolved in a scripted order, microtasks flushed after each step, no timers.
 
-### Second challenge: a stale-response race (JavaScript)
-Pick **Typeahead search: stale responses** in the Debugger panel's challenge list (it syncs to everyone in the room) and load its demo. It's a `createSearch(fetchResults)` store that drops out-of-order responses with a request counter. At checkpoint #3, Developer B extracts a `runSearch` helper. The `++latestRequest` increment moves into the helper, so the diff looks harmless, but clearing the input no longer invalidates the request in flight: type "rea", clear the box, and when the old response lands the empty search box shows React results. The 8 tests are deterministic scenarios: a trusted driver hands out deferred promises, resolves or rejects them in a scripted order, and flushes microtasks after each step. There are no timers and no sleeps.
-
-### Checking the real Meta API (run this first)
+### Checking the real Meta API
 ```bash
-# .env is gitignored. Never commit it.
-echo 'MODEL_API_KEY=your-key-here' >> .env
-npm install
-npm run smoke:meta                         # cart challenge
-npm run smoke:meta -- --challenge=all      # both challenges
+npm run smoke:meta -- --challenge=all     # locate → Muse Spark → verify → apply → re-test, both challenges
 ```
-Step 1 sends one minimal request to `https://api.meta.ai/v1/chat/completions` (`muse-spark-1.3`), so a key, model or network problem shows up on its own. Step 2 runs the real workflow on the demo history: locate the regression, get a Muse Spark analysis and patch, validate it, verify it with the real tests, apply it as a new checkpoint, and re-test. On failure it prints the error code, Meta's HTTP status, the sanitized error detail (key redacted) and what to fix. The key is never printed.
-
-- `401`/`403`: bad or inactive key. `404`: model id or endpoint wrong (`META_MODEL`, `META_BASE_URL`). `400` mentioning `response_format` or the schema: re-run with `META_RESPONSE_FORMAT=json_object`. `invalid-response`: the reply shape differs from what `readText()` in `server/meta.js` expects.
-- Behind an HTTP proxy (corporate network, some cloud sandboxes), Node's `fetch` ignores `HTTPS_PROXY` unless you run with `NODE_USE_ENV_PROXY=1` (Node ≥ 22.21).
-- If a proxy adds the key for you (e.g. a Claude Code **network secret** for `api.meta.ai`), run with `META_AUTH=injected`: the app then sends no `Authorization` header and needs no `MODEL_API_KEY`:
-  ```bash
-  META_AUTH=injected NODE_USE_ENV_PROXY=1 npm run smoke:meta
-  ```
-
-## Architecture
-
+```bash
+npm run eval:meta -- --runs=5             # repeated evaluation; writes docs/eval/*.json (costs about 26k tokens)
 ```
- Browser A / Browser B (React + Monaco)                 Node server (one port)
- ┌────────────────────────────────────┐                ┌───────────────────────────────────────────┐
- │ CodeEditor ── y-monaco ── Y.Doc ───┼── WebRTC P2P ──┼─ signaling (ws)                           │
- │                              │     │── relay (ws) ──┼─ /relay/:room   forwards, never stores    │
- │ meta.timelineVersion (CRDT) ─┘     │                │                                           │
- │   └ tells every peer to refetch    │     HTTP       │ /api/rooms/:id/revisions  revisions.js    │
- │ TimelinePanel ─────────────────────┼───────────────►│   JSON file per room, atomic writes       │
- │ TimeTravelView (read-only diff)    │                │ /api/rooms/:id/regression regression.js   │
- │ DebuggerPanel ─────────────────────┼───────────────►│   bisect + backward verification          │
- │   applyDecision(live == verified?) │                │ /api/.../analyze  meta.js + analysis.js   │
- └────────────────────────────────────┘                │   schema-validated JSON, 1 retry          │
-                                                       │ /api/verify       patches.js + runner.js  │
-                                                       │   ┌───────────────────────────────────┐   │
-                                                       │   │ child process: node --permission  │   │
-                                                       │   │ empty env, heap cap, SIGKILL      │   │
-                                                       │   │ vm context, data-driven tests     │   │
-                                                       │   └───────────────────────────────────┘   │
-                                                       └───────────────────────────────────────────┘
-```
+The key comes from `MODEL_API_KEY` (in `.env`, which is gitignored) and is never printed. On failure the script prints Meta's HTTP status, the sanitized error and what to fix:
+- `401`/`403`: bad key.
+- `404`: model or endpoint wrong.
+- `400` about `response_format`: try `META_RESPONSE_FORMAT=json_object`.
 
-### Key design decisions and trade-offs
-- **Checkpoints are snapshots, not CRDT updates.** Yjs updates are fine-grained and interleaved across peers, so they aren't meaningful units for debugging. A checkpoint stores the full source (lossless, exact to reconstruct, trivially diffable) with a **server-assigned sequence number** (deterministic order even when two people checkpoint at once), a SHA-256 hash, the author and a label. Snapshots cost storage (fine at ≤ 200 × 50 KB per room). Deltas would only matter at scale.
-- **Checkpoints live on the server, invalidation goes through the CRDT.** The relay stores nothing by design, so history needs its own store. When anyone checkpoints, they bump a counter in the shared `Y.Map`, and every peer refetches. That reuses the existing sync channel without adding a pub/sub system.
-- **Regression localization = bisect, then verify.** Bisection (`O(log n)`) assumes outcomes are monotonic. A backward linear scan from the head then confirms the boundary: it costs one run per checkpoint in the failing tail and is exact for "the failure that persists to the latest checkpoint". If they disagree, the linear answer wins and the report says outcomes weren't monotonic. Results are cached by content hash. Infrastructure errors abort the search; compile errors, runtime errors and timeouts count as failing but are labelled. **Full scan** tests every checkpoint for when flips matter. See [docs/BENCHMARK.md](docs/BENCHMARK.md) for where bisection does and doesn't save work.
-- **No causal over-claiming.** The report names the first *observed* failing checkpoint and the diff. It never claims a failing test pinpoints a line.
-- **Patches are exact find/replace edits**, not unified diffs (LLMs often get those wrong). Each `find` must occur exactly once in the target code and edits can't overlap. A patch either applies unambiguously or is rejected with a reason. Model output must be a JSON object with all fields. Invalid output is retried once with the validation error, then reported as an error.
-- **Verification is bound to exact code.** The verified source is compared with the live document when you click Apply (not just when it renders). Any drift blocks apply until you re-verify. Nothing is ever applied automatically.
-- **"Tests passed" means the predefined tests ran and passed on the patched copy.** The UI says so: it doesn't prove the patch is correct for every input.
+Behind an HTTP proxy, run with `NODE_USE_ENV_PROXY=1`. In a Claude Code session whose network secret injects the key, add `META_AUTH=injected` (development only; refused on hosts).
 
-## Execution safety (read this)
-Candidate code **never runs in the server process**. Each test run is a fresh Node child process with:
-- the Node permission model (`--permission`): no filesystem writes, no child processes, no worker threads, and reads limited to the harness file
-- an **empty environment**, so `MODEL_API_KEY` and other secrets aren't visible
-- `--max-old-space-size=64`, `--disallow-code-generation-from-strings`, capped output, and a wall-clock timeout followed by `SIGKILL`
-- a fresh `vm` context with no `require`, `process` or `fetch`, plus a per-test timeout
+## How it works
+Full diagrams: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-**This is not a sandbox.** Node 22's permission model does **not** restrict network access, `vm` is not a security boundary, and the process shares the host kernel. That's why this MVP runs **only predefined challenges with server-owned tests**, and why it must not be offered as arbitrary code execution. Real isolation would be a container per run (`--network none`, memory/pid limits, read-only rootfs, seccomp) or a microVM (Firecracker/gVisor). That wasn't possible here (no container runtime in the build environment) and is the top item of future work.
+- **Checkpoints are snapshots, not CRDT updates.** Each stores the full source, a server-assigned sequence number (deterministic order even when two people checkpoint at once), a SHA-256 hash, the author and a label. Checkpointing bumps a counter in the shared `Y.Map`, so every peer refetches the timeline.
+- **Regression localization = bisect, then verify.** Bisection assumes outcomes are monotonic. A backward linear scan from the head then confirms the boundary exactly for "the failure that persists to the latest checkpoint". Disagreement is flagged as non-monotonic, and **Full scan** tests everything. Results are cached by content hash. Infrastructure errors abort the search; compile, runtime and timeout errors count as failing but are labelled. The report names the first *observed* failing checkpoint; it never claims a line-level cause.
+- **Analysis:** the prompt contains the passing→failing diff, the **full suite with pass/fail status**, failing inputs, how the tests work (including the trusted driver for async scenarios), and the current code.
+  - Output is constrained by Meta's strict `json_schema`.
+  - The server then validates it: every edit's `find` must occur exactly once, edits can't overlap, and in restricted mode a token screen applies.
+  - Invalid output gets one corrective retry.
+- **Verification is bound to exact code.** `verify` takes a server-issued `analysisId`, applies the edits to a copy, and runs the real tests. **Apply** is allowed only if the live document still equals the verified source, re-checked on click. It writes a minimal edit into the shared `Y.Text` and checkpoints the result. Nothing is applied automatically.
+- **"Tests passed" means the predefined tests ran and passed on the patched copy.** The UI says that this doesn't prove the patch correct for every input.
+
+## Execution safety
+Test runs never happen in the server process. Each one is a fresh Node 22 child process with:
+- the permission model: no file writes, subprocesses or worker threads, and reads limited to the harness;
+- an **empty environment**, so no API keys;
+- code generation from strings disabled, a 64 MB heap, capped output, per-case and wall-clock timeouts, then `SIGKILL`.
+
+At startup the server checks that these restrictions actually hold and **disables execution if they don't**.
+
+**That is not a sandbox: outbound network from test processes is not blocked**, and `vm` isn't a security boundary. So the public server runs in **restricted mode** (the default):
+- it executes only code whose hash is on an allowlist: the built-in scenario checkpoints, plus patches it generated and verified itself;
+- visitors can type and checkpoint anything, but their code never runs;
+- the model only sees server-owned code, so prompt injection is impossible;
+- model edits are screened for escape-style tokens as defense in depth;
+- an optional access code, origin allowlist, per-IP limits and a daily AI cap protect the server and API credits.
+
+`EXECUTION_MODE=local` runs anything, for your own machine only, and the server refuses it on Railway or Render. Real isolation (a container with no network, or a microVM) is the main future-work item.
 
 ## Configuration
-Server (`.env` locally, or the host's variables):
-
 | Variable | Purpose |
 |---|---|
-| `MODEL_API_KEY` | Meta Model API key. Enables Muse Spark analysis. Server-only; never put it in a `VITE_` variable. |
+| `MODEL_API_KEY` | Meta Model API key (server only; never a `VITE_` variable). |
 | `META_BASE_URL` / `META_MODEL` | Default `https://api.meta.ai/v1` / `muse-spark-1.3`. |
-| `META_RESPONSE_FORMAT` | `json_schema` (default: Meta strict structured output), `json_object`, or `none`. |
-| `META_AUTH` | `injected` when an egress proxy adds the Authorization header (no key in the app). |
-| `REVISIONS_DIR` | Checkpoint storage, default `./data/revisions`. Use a persistent volume in production (Railway's disk is ephemeral). |
-| `TEST_TIMEOUT_MS` | Wall-clock limit per test run, default 8000. |
-| `ALLOWED_ORIGINS`, `MAX_CONNECTIONS_PER_IP`, `GEMINI_API_KEY`, … | Unchanged, see `server/index.js`. |
+| `META_RESPONSE_FORMAT` | `json_schema` (default), `json_object`, or `none`. |
+| `EXECUTION_MODE` | `restricted` (default) or `local` (dev machines only). |
+| `DEBUGGER_ACCESS_CODE` | Optional code required for writes, test runs and AI calls. |
+| `AI_DAILY_LIMIT` | Model calls per UTC day across all users (default 200). |
+| `REVISIONS_DIR` | Checkpoint storage; defaults to `$RAILWAY_VOLUME_MOUNT_PATH/revisions` on Railway, else `./data/revisions`. |
+| `TEST_TIMEOUT_MS` | Wall-clock limit per test run (default 8000). |
+| `ALLOWED_ORIGINS`, `MAX_CONNECTIONS_PER_IP`, `GEMINI_API_KEY`, … | See `server/index.js`. |
 
 ## Testing
 ```bash
-npm test             # 73 tests (node:test): revisions, runner + parsing, regression (incl. non-monotonic),
-                     # model validation, patches, Meta client errors, HTTP pipeline end to end
-npm run lint         # TypeScript
-npm run build
-npm run benchmark    # localization accuracy / runs / latency on generated histories → docs/BENCHMARK.md
-npm run smoke:meta   # manual: the real Meta API, end to end
+npm test             # 91 tests (node:test): revisions, runner (incl. async + isolation), regression,
+                     # schema/validation, patches, Meta client errors, security policy, HTTP pipeline
+npm run lint && npm run build
+npm run benchmark    # localization on generated histories → docs/BENCHMARK.md
+npm run smoke:meta   # real Meta API, end to end
+node e2e/deployed-api.mjs   # against a running server: security checks first, then the real pipeline
 ```
-The automated pipeline test (`server/debugger.test.js`) uses a **scripted model**. It's labelled as a mock and never stands in for the real demo.
+Automated tests use a **scripted model**. The real model runs only through `smoke:meta`, `eval:meta`, the e2e scripts, and the UI.
 
-## Limitations and future work
-- Structured output uses Meta's strict `json_schema`. Our own validation (edits must apply uniquely) and one retry stay as a second line of defence.
-- Two challenges (TypeScript cart total, JavaScript async search). Tests are data-driven calls with JSON-comparable results, optionally through a trusted scenario driver.
-- Execution is constrained, not sandboxed (see above). Next: a container or microVM runner.
-- Regression reports and AI analyses are per-viewer (not synced). Checkpoints and code are shared.
-- Checkpoint storage is a JSON file per room. Fine for a demo, not for concurrent server instances.
-- No auth: anyone with a room link can read and add to its timeline.
+## Deploying
+Railway (server) + Vercel (frontend): see **[DEPLOY.md](DEPLOY.md)**. It covers the secure debugger setup: variables, a volume for checkpoints, access code, and verifying the deployment with `e2e/`.
+
+## Limitations
+- Two predefined challenges. The public demo never runs visitor-written code (local mode does).
+- The runner is constrained, not sandboxed (network open). Real isolation is future work.
+- Regression reports and analyses are per-viewer. Code, chat, checkpoints and the active challenge are shared.
+- Checkpoint storage is a JSON file per room on a single instance.
+- The evaluation is 10 trials on two seeded bugs with generous context: evidence of reliability, not of general debugging ability.
 
 ## Project layout
 ```
-server/app.js              one port: signaling, relay, matchmaking, /api/* (CORS-checked), /health
-server/debugger.js         debugger REST routes, rate limits, result cache
-server/revisions.js        checkpoint store (snapshots, sequence numbers, SHA-256, atomic JSON writes)
-server/challenges.js       predefined challenge, tests and demo history
-server/runner.js           compile (sucrase) + spawn constrained test process, classify results
-server/runner-harness.cjs  runs inside the child process: vm context, data-driven test cases
+server/debugger.js         debugger REST routes, access code, rate limits, AI daily cap
+server/execution-policy.js what may execute: hash allowlist (restricted) vs local; edit screen
+server/runner.js           compile + constrained child process, isolation self-check
+server/runner-harness.cjs  inside the child: vm context, async cases, trusted scenario drivers
 server/regression.js       bisect + backward verification, non-monotonic detection
-server/meta.js             Meta Model API client (wire format isolated, typed errors)
-server/analysis.js         debugging prompt + strict response validation
-server/patches.js          find/replace patch validation and application
-shared/diff.js             LCS line diff (prompt + UI stats)
-shared/patch-safety.js     the apply rule: verified, passing, and live == verified source
-src/hooks/useDebugger.ts   debugger state + actions; CRDT-based timeline invalidation
-src/components/            TimelinePanel, TimeTravelView, DiffView, DebuggerPanel (+ existing editor UI)
-scripts/                   smoke-meta.mjs (real API), benchmark.mjs (measured results)
+server/meta.js             Meta Model API client (json_schema, fallback, typed errors, usage)
+server/analysis.js         prompt, ANALYSIS_SCHEMA, response validation
+server/patches.js          find/replace validation and application
+server/revisions.js        checkpoint store (snapshots, sequence numbers, SHA-256, room cap)
+server/challenges.js       cart-total (TS) and search-race (JS, async) with tests and demo histories
+shared/                    diff, patch-safety (the apply rule), matching
+src/hooks/useDebugger.ts   debugger state; CRDT-based timeline invalidation and shared challenge
+src/components/            TimelinePanel, TimeTravelView, DiffView, DebuggerPanel + the editor UI
+scripts/                   smoke-meta, eval-meta, benchmark
+e2e/                       deployed API check + browser flows
+docs/                      HACKATHON, ARCHITECTURE, EVALUATION, BENCHMARK
 ```
 
-## Collaboration features (existing)
+## Collaboration features
 - **Rooms by link**, no accounts. **Live cursors and presence** via Yjs awareness. **Synced chat** and per-language files in the same Y.Doc.
 - **Peer-to-peer with a fallback**: `y-webrtc` data channels, plus a server relay for networks that block direct connections, plus BroadcastChannel between tabs.
 - **Skill-based matchmaking** (cosine similarity over profile vectors) and **Gemini code hints** (Ctrl/Cmd+K).

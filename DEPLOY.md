@@ -5,7 +5,7 @@ PeerCode has two parts that deploy separately:
 | Part | What it is | Where | Config in repo |
 | --- | --- | --- | --- |
 | **Frontend** | Static Vite build (landing, editor, match page) | Vercel | `vercel.json` |
-| **Server** | Node WebSocket server: signaling + matchmaking | Railway (or Render) | `railway.json` / `render.yaml` |
+| **Server** | Node server: signaling, relay, matchmaking, debugger API and test runner | Railway (or Render) | `railway.json` / `render.yaml` |
 
 The server has to be a long-running process with WebSocket support, which is why it doesn't go on Vercel. It introduces browsers so they can sync directly over WebRTC. When a network blocks that (common on mobile data), it relays the room's updates between the two browsers instead. It never stores them.
 
@@ -108,13 +108,56 @@ then redeploy.
 - The matchmaking queue lives in the server's memory. That's fine for one instance. Scaling to several instances would need a shared store like Redis.
 - Each IP can hold 20 WebSocket connections at once (`MAX_CONNECTIONS_PER_IP`).
 
-## Time-travel debugger settings
+## Time-travel debugger (secure setup)
 
-On Railway (or Render) → **Variables**:
+The debugger runs tests on the server, so set it up in this order. Steps marked **(you)** need your Railway account or a credential. Nothing here should ever be committed or pasted in chat.
 
-| Name | Value |
-| --- | --- |
-| `MODEL_API_KEY` | your Meta Model API key (server only) |
-| `REVISIONS_DIR` | a path on a persistent volume, e.g. `/data/revisions` |
+### What the server will and won't run
+The public server runs in `EXECUTION_MODE=restricted` (the default). It only executes code whose hash is on a server-side allowlist: the built-in scenario checkpoints, plus patches it generated and verified itself. Visitors can type and checkpoint anything, but their code never runs, and the AI only ever sees server-owned code. The runner is a constrained child process (no file writes, subprocesses, workers, env vars or `eval`; checked at startup), but **outbound network from test processes is not blocked**. That's why restricted mode is the default and `EXECUTION_MODE=local` is refused on Railway and Render.
 
-Checkpoints are written to `REVISIONS_DIR`. Railway's filesystem is wiped on every redeploy, so attach a volume (**Service → Settings → Volumes**, mount at `/data`) or checkpoints vanish with each deploy. Test runs start a child Node process per run, which uses CPU and memory on the server. The free tiers are fine for demos.
+### 1. Variables **(you)**
+Railway → your service → **Variables**:
+
+| Name | Value | Why |
+| --- | --- | --- |
+| `MODEL_API_KEY` | your Meta Model API key | Muse Spark analysis. Server only; never a `VITE_` variable. |
+| `ALLOWED_ORIGINS` | `https://<your-vercel-domain>` | Only your site may call the API. |
+| `DEBUGGER_ACCESS_CODE` | a long random string | Recommended for a public demo: writes, test runs and AI calls need it. Give it to judges in the submission, not in the repo. |
+| `AI_DAILY_LIMIT` | e.g. `150` | Caps model calls per day across everyone (default 200). |
+
+**Do not** set `EXECUTION_MODE` (the server refuses `local` on a host) or `META_AUTH` (`injected` is for the Claude Code dev proxy only, and is refused on a host).
+
+### 2. Persistent checkpoints **(you)**
+Railway → your service → **Settings → Volumes → Add volume**, mount path `/data`. Railway then sets `RAILWAY_VOLUME_MOUNT_PATH`, and checkpoints go to `/data/revisions` automatically (`REVISIONS_DIR` overrides this). Without a volume the server logs `WARNING: no Railway volume attached` and checkpoints vanish on every redeploy. Keep **one replica**: analyses and rate limits live in memory.
+
+### 3. Node version
+`package.json` pins Node `22.x` (`.nvmrc` too). The runner's permission model needs Node ≥ 22.13. If the host picks another version and the startup self-check fails, test execution is disabled (`/health` shows `executionAvailable: false`) rather than running unconstrained.
+
+### 4. Check `/health`
+`https://<railway-domain>/health` → `debugger` should show:
+```json
+{ "executionMode": "restricted", "executionAvailable": true, "isolation": { "ok": true, ... },
+  "networkRestricted": false, "persistence": "volume (/data/revisions)", "ai": true, "accessCodeRequired": true }
+```
+
+### 5. Redeploy the frontend **(you)**
+Vercel → **Deployments → Redeploy**, so the site picks up the debugger UI (`VITE_SERVER_URL` is unchanged).
+
+### 6. End-to-end check against the deployment
+Security checks run first. If any fail, the script stops before spending API credits.
+```bash
+SERVER_URL=https://<railway-domain> FRONTEND_ORIGIN=https://<vercel-domain> PEERCODE_ACCESS_CODE=<code> node e2e/deployed-api.mjs --expect-volume
+```
+```bash
+BASE_URL=https://<vercel-domain> PEERCODE_ACCESS_CODE=<code> node e2e/browser-flow-cart.cjs
+```
+```bash
+BASE_URL=https://<vercel-domain> PEERCODE_ACCESS_CODE=<code> node e2e/browser-flow-search.cjs
+```
+```bash
+BASE_URL=https://<vercel-domain> PEERCODE_ACCESS_CODE=<code> node e2e/browser-security.cjs
+```
+Then redeploy the server once and confirm an earlier room's timeline is still there (volume check).
+
+### Costs and limits
+Each analysis is about 2–3.5k tokens (see [docs/EVALUATION.md](docs/EVALUATION.md)). Test runs are child Node processes (64 MB heap, 8 s limit, 2 at a time). Per-IP limits: 60 test runs/min, 20 AI calls/10 min.

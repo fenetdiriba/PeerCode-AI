@@ -1,0 +1,483 @@
+{
+  "date": "2026-10-31T01:26:09.170Z",
+  "model": "muse-spark-1.3",
+  "responseFormat": "json_schema",
+  "node": "v22.22.0",
+  "runsPerChallenge": 5,
+  "summary": [
+    {
+      "challenge": "cart-total",
+      "trials": 5,
+      "localizationCorrect": 5,
+      "validAnalysis": 5,
+      "firstAttemptValid": 5,
+      "schemaFallbacks": 0,
+      "namesRootCause": 5,
+      "verifiedPatches": 5,
+      "appliedRetestPassed": 5,
+      "modelLatencyMs": {
+        "median": 8536,
+        "min": 6158,
+        "max": 9305
+      },
+      "tokens": {
+        "total": 10609,
+        "medianPerAnalysis": 2146,
+        "medianReasoning": 884
+      }
+    },
+    {
+      "challenge": "search-race",
+      "trials": 5,
+      "localizationCorrect": 5,
+      "validAnalysis": 5,
+      "firstAttemptValid": 5,
+      "schemaFallbacks": 0,
+      "namesRootCause": 5,
+      "verifiedPatches": 5,
+      "appliedRetestPassed": 5,
+      "modelLatencyMs": {
+        "median": 6958,
+        "min": 5918,
+        "max": 14217
+      },
+      "tokens": {
+        "total": 15766,
+        "medianPerAnalysis": 3009,
+        "medianReasoning": 854
+      }
+    }
+  ],
+  "trials": [
+    {
+      "challenge": "cart-total",
+      "trial": 1,
+      "localizationCorrect": true,
+      "localizationMs": 220,
+      "analysisWallMs": 9309,
+      "analysisOk": true,
+      "attempts": 1,
+      "responseFormat": "json_schema",
+      "schemaFallback": false,
+      "modelLatencyMs": 9305,
+      "usage": {
+        "promptTokens": 1084,
+        "completionTokens": 1062,
+        "reasoningTokens": 884,
+        "totalTokens": 2146
+      },
+      "requestIds": [
+        "chatcmpl-01a18f8f-462e-7020-af60-3084b0330ca1"
+      ],
+      "namesRootCause": true,
+      "edits": 1,
+      "patchLines": {
+        "added": 1,
+        "removed": 1
+      },
+      "analysis": {
+        "edits": [
+          {
+            "find": "    (sum, item) => sum + item.price,",
+            "replace": "    (sum, item) => sum + item.price * item.quantity,"
+          }
+        ],
+        "failedBehavior": "calculateTotal returns sum of prices ignoring quantity, failing whenever quantity differs from 1.",
+        "whatChanged": "Reducer changed from sum + item.price * item.quantity to sum + item.price, dropping the quantity factor.",
+        "probableRootCause": "The 'Simplify reducer' change accidentally removed the quantity multiplication from the reducer.",
+        "explanation": "Spec requires sum of price×quantity; dropping * item.quantity leaves totals correct only when quantity is 1, explaining 2 passes and 3 failures with quantity !=1.",
+        "confidenceNotes": "Fix restores quantity handling; edge cases like negative prices, fractional quantities, or float rounding are not covered by shown tests."
+      },
+      "verification": "passed 5/5",
+      "verified": true,
+      "appliedRetest": "passed 5/5"
+    },
+    {
+      "challenge": "cart-total",
+      "trial": 2,
+      "localizationCorrect": true,
+      "localizationMs": 0,
+      "analysisWallMs": 6207,
+      "analysisOk": true,
+      "attempts": 1,
+      "responseFormat": "json_schema",
+      "schemaFallback": false,
+      "modelLatencyMs": 6204,
+      "usage": {
+        "promptTokens": 1084,
+        "completionTokens": 783,
+        "reasoningTokens": 594,
+        "totalTokens": 1867
+      },
+      "requestIds": [
+        "chatcmpl-01a18f8f-5eae-7495-86ac-ce70d629410d"
+      ],
+      "namesRootCause": true,
+      "edits": 1,
+      "patchLines": {
+        "added": 1,
+        "removed": 1
+      },
+      "analysis": {
+        "edits": [
+          {
+            "find": "    (sum, item) => sum + item.price,",
+            "replace": "    (sum, item) => sum + item.price * item.quantity,"
+          }
+        ],
+        "failedBehavior": "calculateTotal returns sum of prices ignoring quantity, failing whenever quantity is not 1.",
+        "whatChanged": "Reducer changed from `sum + item.price * item.quantity` to `sum + item.price`, dropping quantity multiplication.",
+        "probableRootCause": "The 'Simplify reducer' change accidentally removed the `* item.quantity` factor.",
+        "explanation": "Spec requires price×quantity per item; without multiplication totals match only when quantity is 1, explaining 2/5 passes and e.g. 12 vs 4. Restoring multiplication fixes all failures.",
+        "confidenceNotes": "Fix restores spec behavior for shown tests; edge cases like negative prices, NaN, or floating-point rounding are not covered."
+      },
+      "verification": "passed 5/5",
+      "verified": true,
+      "appliedRetest": "passed 5/5"
+    },
+    {
+      "challenge": "cart-total",
+      "trial": 3,
+      "localizationCorrect": true,
+      "localizationMs": 0,
+      "analysisWallMs": 8539,
+      "analysisOk": true,
+      "attempts": 1,
+      "responseFormat": "json_schema",
+      "schemaFallback": false,
+      "modelLatencyMs": 8536,
+      "usage": {
+        "promptTokens": 1084,
+        "completionTokens": 1205,
+        "reasoningTokens": 999,
+        "totalTokens": 2289
+      },
+      "requestIds": [
+        "chatcmpl-01a18f8f-8017-7301-a6d0-e8f71faa6c9a"
+      ],
+      "namesRootCause": true,
+      "edits": 1,
+      "patchLines": {
+        "added": 1,
+        "removed": 1
+      },
+      "analysis": {
+        "edits": [
+          {
+            "find": "    (sum, item) => sum + item.price,",
+            "replace": "    (sum, item) => sum + item.price * item.quantity,"
+          }
+        ],
+        "failedBehavior": "calculateTotal ignored quantity and summed only price, e.g. price 4 x3 returned 4 instead of 12.",
+        "whatChanged": "Reducer changed from `sum + item.price * item.quantity` to `sum + item.price`, removing quantity handling.",
+        "probableRootCause": "The 'Simplify reducer' change dropped the `* item.quantity` factor from the reduce callback.",
+        "explanation": "Quantity 1 and empty cases pass with or without multiplication, but quantity 3, mixed quantities, and zero quantity fail; restoring * item.quantity fixes all three while preserving passing cases.",
+        "confidenceNotes": "Fix is directly verified by failing cases; floating-point edge cases beyond the 21.5 test are not covered by the suite."
+      },
+      "verification": "passed 5/5",
+      "verified": true,
+      "appliedRetest": "passed 5/5"
+    },
+    {
+      "challenge": "cart-total",
+      "trial": 4,
+      "localizationCorrect": true,
+      "localizationMs": 0,
+      "analysisWallMs": 6160,
+      "analysisOk": true,
+      "attempts": 1,
+      "responseFormat": "json_schema",
+      "schemaFallback": false,
+      "modelLatencyMs": 6158,
+      "usage": {
+        "promptTokens": 1084,
+        "completionTokens": 1030,
+        "reasoningTokens": 824,
+        "totalTokens": 2114
+      },
+      "requestIds": [
+        "chatcmpl-01a18f8f-983c-741d-bb88-a15f543c9b34"
+      ],
+      "namesRootCause": true,
+      "edits": 1,
+      "patchLines": {
+        "added": 1,
+        "removed": 1
+      },
+      "analysis": {
+        "edits": [
+          {
+            "find": "    (sum, item) => sum + item.price,",
+            "replace": "    (sum, item) => sum + item.price * item.quantity,"
+          }
+        ],
+        "failedBehavior": "calculateTotal returns sum of prices ignoring quantity; single item quantity 3 expected 12 got 4, mixed cart and zero-quantity cases also fail.",
+        "whatChanged": "Reducer changed from `sum + item.price * item.quantity` to `sum + item.price`, removing quantity handling.",
+        "probableRootCause": "The 'Simplify reducer' change accidentally dropped the `* item.quantity` factor from the sum.",
+        "explanation": "Diff removed `* item.quantity` from the reducer. Tests with quantity 1 still pass, while quantity 3, mixed, and zero-quantity cases fail with price-only sums, so restoring the multiplication fixes the regression.",
+        "confidenceNotes": "No uncertainty on root cause; tests do not cover negative quantities, NaN, or floating-point rounding edge cases."
+      },
+      "verification": "passed 5/5",
+      "verified": true,
+      "appliedRetest": "passed 5/5"
+    },
+    {
+      "challenge": "cart-total",
+      "trial": 5,
+      "localizationCorrect": true,
+      "localizationMs": 0,
+      "analysisWallMs": 8911,
+      "analysisOk": true,
+      "attempts": 1,
+      "responseFormat": "json_schema",
+      "schemaFallback": false,
+      "modelLatencyMs": 8909,
+      "usage": {
+        "promptTokens": 1084,
+        "completionTokens": 1109,
+        "reasoningTokens": 910,
+        "totalTokens": 2193
+      },
+      "requestIds": [
+        "chatcmpl-01a18f8f-bb07-7384-8ebe-b4b725dcb657"
+      ],
+      "namesRootCause": true,
+      "edits": 1,
+      "patchLines": {
+        "added": 1,
+        "removed": 1
+      },
+      "analysis": {
+        "edits": [
+          {
+            "find": "    (sum, item) => sum + item.price,",
+            "replace": "    (sum, item) => sum + item.price * item.quantity,"
+          }
+        ],
+        "failedBehavior": "calculateTotal returns sum of prices ignoring quantity. Tests with quantity !=1 fail, e.g. price 4 x3 expected 12 got 4.",
+        "whatChanged": "Reducer changed from sum + item.price * item.quantity to sum + item.price, dropping the quantity factor.",
+        "probableRootCause": "The 'Simplify reducer' change accidentally removed the * item.quantity multiplication from the reducer.",
+        "explanation": "Dropping * item.quantity makes total equal sum of prices, so tests with quantity 3, mixed quantities, and zero quantity fail while quantity-1 cases still pass. Restoring the multiplication fixes the regression.",
+        "confidenceNotes": "No uncertainty about the fix; tests do not cover negative quantities, NaN, or floating-point rounding edge cases."
+      },
+      "verification": "passed 5/5",
+      "verified": true,
+      "appliedRetest": "passed 5/5"
+    },
+    {
+      "challenge": "search-race",
+      "trial": 1,
+      "localizationCorrect": true,
+      "localizationMs": 211,
+      "analysisWallMs": 5920,
+      "analysisOk": true,
+      "attempts": 1,
+      "responseFormat": "json_schema",
+      "schemaFallback": false,
+      "modelLatencyMs": 5918,
+      "usage": {
+        "promptTokens": 1911,
+        "completionTokens": 932,
+        "reasoningTokens": 644,
+        "totalTokens": 2843
+      },
+      "requestIds": [
+        "chatcmpl-01a18f8f-d320-7173-9a25-16794164490c"
+      ],
+      "namesRootCause": true,
+      "edits": 1,
+      "patchLines": {
+        "added": 1,
+        "removed": 0
+      },
+      "analysis": {
+        "edits": [
+          {
+            "find": "  function setQuery(rawQuery) {\n    const query = rawQuery.trim();\n    if (query === '') {\n      update({ status: 'idle', query: '', results: [], error: null });",
+            "replace": "  function setQuery(rawQuery) {\n    const query = rawQuery.trim();\n    if (query === '') {\n      ++latestRequest;\n      update({ status: 'idle', query: '', results: [], error: null });"
+          }
+        ],
+        "failedBehavior": "Clearing the query to idle is overwritten by a prior in-flight request: stale resolve shows success and stale reject shows error instead of staying idle.",
+        "whatChanged": "Extracted runSearch helper: ++latestRequest moved from setQuery (which ran for every keystroke including blank) into runSearch (which blank queries skip).",
+        "probableRootCause": "The refactor moved ++latestRequest into runSearch so the early-return for blank queries no longer invalidates prior requests.",
+        "explanation": "The blank-query path no longer increments latestRequest, so the requestId check in runSearch still matches and a stale resolve/reject overwrites idle. Bumping latestRequest on clear re-invalidates in-flight requests.",
+        "confidenceNotes": "Tests cover stale success/error after clear and out-of-order searches; retry staleness and listener notifications are not covered by the shown failures."
+      },
+      "verification": "passed 8/8",
+      "verified": true,
+      "appliedRetest": "passed 8/8"
+    },
+    {
+      "challenge": "search-race",
+      "trial": 2,
+      "localizationCorrect": true,
+      "localizationMs": 0,
+      "analysisWallMs": 6962,
+      "analysisOk": true,
+      "attempts": 1,
+      "responseFormat": "json_schema",
+      "schemaFallback": false,
+      "modelLatencyMs": 6958,
+      "usage": {
+        "promptTokens": 1911,
+        "completionTokens": 1098,
+        "reasoningTokens": 826,
+        "totalTokens": 3009
+      },
+      "requestIds": [
+        "chatcmpl-01a18f8f-ee97-76b8-9d4a-85dda90ec1f6"
+      ],
+      "namesRootCause": true,
+      "edits": 1,
+      "patchLines": {
+        "added": 1,
+        "removed": 0
+      },
+      "analysis": {
+        "edits": [
+          {
+            "find": "    if (query === '') {\n      update({ status: 'idle', query: '', results: [], error: null });\n      return Promise.resolve();\n    }",
+            "replace": "    if (query === '') {\n      ++latestRequest;\n      update({ status: 'idle', query: '', results: [], error: null });\n      return Promise.resolve();\n    }"
+          }
+        ],
+        "failedBehavior": "Clearing the query to idle is overwritten by a prior in-flight request: stale resolve shows success and stale reject shows error instead of staying idle.",
+        "whatChanged": "Extracted runSearch helper moved `++latestRequest` from setQuery into runSearch, so empty/blank queries no longer bump the request generation.",
+        "probableRootCause": "The blank-query early return no longer increments latestRequest, so stale responses still match the latest generation.",
+        "explanation": "The refactor moved ++latestRequest into runSearch, so the blank-query path no longer invalidates the in-flight requestId. Re-adding the bump on clear makes the stale resolve/reject fail the requestId !== latestRequest guard and preserves idle.",
+        "confidenceNotes": "Fix assumes incrementing the generation on clear is sufficient; tests do not cover concurrent clears, retry() interaction, or listener notifications."
+      },
+      "verification": "passed 8/8",
+      "verified": true,
+      "appliedRetest": "passed 8/8"
+    },
+    {
+      "challenge": "search-race",
+      "trial": 3,
+      "localizationCorrect": true,
+      "localizationMs": 0,
+      "analysisWallMs": 6893,
+      "analysisOk": true,
+      "attempts": 1,
+      "responseFormat": "json_schema",
+      "schemaFallback": false,
+      "modelLatencyMs": 6891,
+      "usage": {
+        "promptTokens": 1911,
+        "completionTokens": 1098,
+        "reasoningTokens": 854,
+        "totalTokens": 3009
+      },
+      "requestIds": [
+        "chatcmpl-01a18f90-097d-77ee-978f-b9418ee45509"
+      ],
+      "namesRootCause": true,
+      "edits": 1,
+      "patchLines": {
+        "added": 1,
+        "removed": 0
+      },
+      "analysis": {
+        "edits": [
+          {
+            "find": "    if (query === '') {\n      update({ status: 'idle', query: '', results: [], error: null });",
+            "replace": "    if (query === '') {\n      ++latestRequest;\n      update({ status: 'idle', query: '', results: [], error: null });"
+          }
+        ],
+        "failedBehavior": "Clearing the query to blank should stay idle, but a later resolve/reject of the prior in-flight fetch overwrote it with success/error.",
+        "whatChanged": "setQuery was split into setQuery plus runSearch helper, moving the ++latestRequest increment into runSearch so the blank-query path no longer bumps the generation.",
+        "probableRootCause": "The empty-query early return no longer increments latestRequest, so stale responses are not recognized as stale after a clear.",
+        "explanation": "Previously setQuery always did ++latestRequest before the empty check; after extraction only runSearch increments it, so clearing no longer supersedes the pending request and its stale guard passes.",
+        "confidenceNotes": "Fix assumes bumping the generation on clear is sufficient; tests do not cover retry() interaction with stale invalidation or multiple clears in a row."
+      },
+      "verification": "passed 8/8",
+      "verified": true,
+      "appliedRetest": "passed 8/8"
+    },
+    {
+      "challenge": "search-race",
+      "trial": 4,
+      "localizationCorrect": true,
+      "localizationMs": 0,
+      "analysisWallMs": 14220,
+      "analysisOk": true,
+      "attempts": 1,
+      "responseFormat": "json_schema",
+      "schemaFallback": false,
+      "modelLatencyMs": 14217,
+      "usage": {
+        "promptTokens": 1911,
+        "completionTokens": 1590,
+        "reasoningTokens": 1275,
+        "totalTokens": 3501
+      },
+      "requestIds": [
+        "chatcmpl-01a18f90-411b-7497-804d-e1bc4ccb4d52"
+      ],
+      "namesRootCause": true,
+      "edits": 1,
+      "patchLines": {
+        "added": 1,
+        "removed": 0
+      },
+      "analysis": {
+        "edits": [
+          {
+            "find": "  function setQuery(rawQuery) {\n    const query = rawQuery.trim();\n    if (query === '') {\n      update({ status: 'idle', query: '', results: [], error: null });",
+            "replace": "  function setQuery(rawQuery) {\n    const query = rawQuery.trim();\n    if (query === '') {\n      ++latestRequest;\n      update({ status: 'idle', query: '', results: [], error: null });"
+          }
+        ],
+        "failedBehavior": "Typing a query then clearing to idle, a later resolve/reject of the in-flight fetch overwrote idle with success/error instead of staying idle.",
+        "whatChanged": "Extracted runSearch helper moved the ++latestRequest increment out of setQuery into runSearch, so the empty-query path no longer invalidates in-flight requests.",
+        "probableRootCause": "The blank-query early return in setQuery no longer bumps latestRequest, so the staleness guard fails to discard the prior request.",
+        "explanation": "Previously setQuery incremented latestRequest before the blank check, so clearing invalidated in-flight fetches. After extraction only runSearch increments, so the blank path leaves the old requestId valid and its resolve/reject overwrites idle. Re-adding the increment to the blank branch restores staleness protection.",
+        "confidenceNotes": "Tests do not cover retry() interaction with clearing or subscribe notification order; fix assumes blank clear should invalidate all prior requests but not affect future runSearch versioning."
+      },
+      "verification": "passed 8/8",
+      "verified": true,
+      "appliedRetest": "passed 8/8"
+    },
+    {
+      "challenge": "search-race",
+      "trial": 5,
+      "localizationCorrect": true,
+      "localizationMs": 0,
+      "analysisWallMs": 10915,
+      "analysisOk": true,
+      "attempts": 1,
+      "responseFormat": "json_schema",
+      "schemaFallback": false,
+      "modelLatencyMs": 10912,
+      "usage": {
+        "promptTokens": 1911,
+        "completionTokens": 1493,
+        "reasoningTokens": 1157,
+        "totalTokens": 3404
+      },
+      "requestIds": [
+        "chatcmpl-01a18f90-6bb5-7028-909f-8be49d45680b"
+      ],
+      "namesRootCause": true,
+      "edits": 1,
+      "patchLines": {
+        "added": 1,
+        "removed": 0
+      },
+      "analysis": {
+        "edits": [
+          {
+            "find": "  function setQuery(rawQuery) {\n    const query = rawQuery.trim();\n    if (query === '') {\n      update({ status: 'idle', query: '', results: [], error: null });\n      return Promise.resolve();\n    }\n    return runSearch(query);\n  }",
+            "replace": "  function setQuery(rawQuery) {\n    const query = rawQuery.trim();\n    if (query === '') {\n      ++latestRequest;\n      update({ status: 'idle', query: '', results: [], error: null });\n      return Promise.resolve();\n    }\n    return runSearch(query);\n  }"
+          }
+        ],
+        "failedBehavior": "Clearing the query to blank then late-resolving or late-rejecting the in-flight fetch overwrote idle with success/error instead of staying idle.",
+        "whatChanged": "Extracting runSearch moved const requestId = ++latestRequest into runSearch, so setQuery's early-return for blank queries no longer bumps the generation counter.",
+        "probableRootCause": "The blank-query path no longer increments latestRequest, so stale responses pass the requestId check.",
+        "explanation": "Moving ++latestRequest into runSearch left the blank-query path without invalidation, so the stale requestId check in runSearch no longer filtered the in-flight fetch after a clear. Bumping latestRequest on clear restores the guard.",
+        "confidenceNotes": "Retry path and subscribe notifications are not exercised by the failing scenarios; incrementing on clear assumes no legitimate pending request should survive a blank query, which matches the spec."
+      },
+      "verification": "passed 8/8",
+      "verified": true,
+      "appliedRetest": "passed 8/8"
+    }
+  ]
+}

@@ -14,7 +14,8 @@
     "lint": "tsc --noEmit",
     "test": "node --test",
     "smoke:meta": "node scripts/smoke-meta.mjs",
-    "benchmark": "node scripts/benchmark.mjs"
+    "benchmark": "node scripts/benchmark.mjs",
+    "eval:meta": "node scripts/eval-meta.mjs"
   },
   "engines": {
     "node": "22.x"

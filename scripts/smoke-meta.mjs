@@ -14,7 +14,7 @@ import 'dotenv/config';
 import { applyDecision } from '../shared/patch-safety.js';
 import { createApp } from '../server/app.js';
 import { CHALLENGES } from '../server/challenges.js';
-import { createMetaClient, DEFAULT_BASE_URL, DEFAULT_MODEL, ModelError } from '../server/meta.js';
+import { createMetaClient, DEFAULT_BASE_URL, DEFAULT_MODEL, ModelError, responseFormatFromEnv } from '../server/meta.js';
 import { createRevisionStore } from '../server/revisions.js';
 import { createRunner } from '../server/runner.js';
 
@@ -22,12 +22,12 @@ const clean = (v) => v?.trim().replace(/^["']|["']$/g, '').trim() || undefined;
 const key = clean(process.env.MODEL_API_KEY);
 const baseUrl = clean(process.env.META_BASE_URL) ?? DEFAULT_BASE_URL;
 const modelName = clean(process.env.META_MODEL) ?? DEFAULT_MODEL;
-const jsonMode = process.env.META_JSON_MODE !== 'off';
+const responseFormat = responseFormatFromEnv(process.env);
 const injected = process.env.META_AUTH === 'injected';
 
 console.log(`Endpoint:  ${baseUrl.replace(/\/+$/, '')}/chat/completions`);
 console.log(`Model:     ${modelName}`);
-console.log(`JSON mode: ${jsonMode ? 'on (response_format: json_object)' : 'off'}`);
+console.log(`Format:    ${responseFormat}${responseFormat === 'json_schema' ? ' (strict structured output)' : ''}`);
 console.log(`Auth:      ${injected ? 'injected by the egress proxy (no key in this process)' : key ? `MODEL_API_KEY set (${key.length} chars, not shown)` : 'MODEL_API_KEY NOT SET'}`);
 if (!injected && !key) {
   console.error('\nFAIL: MODEL_API_KEY is not set. Put it in .env (gitignored) or export it in your shell, or set META_AUTH=injected if a proxy adds the key.');
@@ -52,7 +52,7 @@ function fixFor(code, upstreamStatus, detail) {
   if (code === 'upstream') return 'Meta returned a server error. Retry shortly.';
   if (code === 'invalid-response') return 'The API answered 200, but not in a shape server/meta.js understands. Compare the response format in the docs with readText() in server/meta.js.';
   if (upstreamStatus === 404) return 'Endpoint or model not found. Check META_MODEL (model id spelling) and META_BASE_URL against the docs.';
-  if (upstreamStatus === 400 && /response_format|json/i.test(detail)) return 'The API rejected response_format. Re-run with META_JSON_MODE=off.';
+  if (upstreamStatus === 400 && /response_format|json|schema/i.test(detail)) return 'The API rejected the response format or schema. Re-run with META_RESPONSE_FORMAT=json_object (or none) and report the detail above.';
   if (upstreamStatus === 400 || upstreamStatus === 422) return 'The request body was refused. Compare buildRequest() in server/meta.js with the request format in the docs.';
   return 'See the detail above.';
 }
@@ -66,14 +66,14 @@ function reportFailure(step, { code, upstreamStatus, detail, message }) {
   console.error(`  what to fix:      ${fixFor(code, upstreamStatus, detail ?? '')}`);
 }
 
-const model = createMetaClient({ apiKey: key, authMode: injected ? 'injected' : 'key', baseUrl, model: modelName, jsonMode });
+const model = createMetaClient({ apiKey: key, authMode: injected ? 'injected' : 'key', baseUrl, model: modelName, responseFormat });
 
 // ---- Step 1: connectivity ---------------------------------------------------------------
 console.log('\n[1/2] Connectivity: minimal request to the real Meta API...');
 try {
   const started = performance.now();
-  const text = await model.complete({ system: 'Reply with a JSON object only.', user: 'Return exactly {"ok": true}.' });
-  console.log(`  OK in ${Math.round(performance.now() - started)}ms. Model replied: ${text.slice(0, 120).replace(/\s+/g, ' ')}`);
+  const r = await model.complete({ system: 'Reply with a JSON object only.', user: 'Return exactly {"ok": true}.' });
+  console.log(`  OK in ${Math.round(performance.now() - started)}ms (${r.usage?.totalTokens ?? '?'} tokens). Model replied: ${r.text.slice(0, 120).replace(/\s+/g, ' ')}`);
 } catch (err) {
   if (err instanceof ModelError) reportFailure('connectivity', err);
   else reportFailure('connectivity', { message: String(err?.message ?? err) });
@@ -114,7 +114,9 @@ try {
     throw Object.assign(new Error('analysis failed'), { reported: true });
   }
   const a = an.body.analysis;
-  console.log(`  Muse Spark answered in ${an.body.latencyMs}ms (attempts: ${an.body.attempts}). Response passed schema validation.`);
+  const u = an.body.usage;
+  console.log(`  Muse Spark answered in ${an.body.latencyMs}ms (attempts: ${an.body.attempts}, format: ${an.body.responseFormat}${an.body.schemaFallback ? ' after json_schema was rejected' : ''}). Response passed validation.`);
+  console.log(`  Usage: ${u.promptTokens} prompt + ${u.completionTokens} completion tokens (${u.reasoningTokens} reasoning). Request ids: ${an.body.requestIds.join(', ')}`);
   console.log(`    What failed:  ${a.failedBehavior}`);
   console.log(`    What changed: ${a.whatChanged}`);
   console.log(`    Root cause:   ${a.probableRootCause}`);

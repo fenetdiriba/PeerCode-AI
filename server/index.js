@@ -13,7 +13,7 @@
 //   MODEL_API_KEY           Meta Model API key; enables Muse Spark debugging analysis.
 //   META_BASE_URL           default https://api.meta.ai/v1
 //   META_MODEL              default muse-spark-1.3
-//   META_JSON_MODE          "off" to stop sending response_format (if the API rejects it).
+//   META_RESPONSE_FORMAT    json_schema (default, Meta structured output), json_object, or none.
 //   META_AUTH               "injected" when an egress proxy adds the Authorization header
 //                           (e.g. a Claude Code network secret); MODEL_API_KEY is then not needed.
 //   REVISIONS_DIR           where checkpoints are stored (one JSON file per room). Default ./data/revisions.
@@ -21,7 +21,7 @@
 import 'dotenv/config';
 import { DEFAULT_MODELS, geminiGenerator } from './ai.js';
 import { createApp } from './app.js';
-import { createMetaClient, DEFAULT_BASE_URL, DEFAULT_MODEL } from './meta.js';
+import { createMetaClient, DEFAULT_BASE_URL, DEFAULT_MODEL, responseFormatFromEnv } from './meta.js';
 import { createRevisionStore } from './revisions.js';
 import { createRunner } from './runner.js';
 
@@ -40,7 +40,7 @@ const model = createMetaClient({
   authMode: process.env.META_AUTH === 'injected' ? 'injected' : 'key',
   baseUrl: clean(process.env.META_BASE_URL) ?? DEFAULT_BASE_URL,
   model: clean(process.env.META_MODEL) ?? DEFAULT_MODEL,
-  jsonMode: process.env.META_JSON_MODE !== 'off',
+  responseFormat: responseFormatFromEnv(process.env),
 });
 const models = (process.env.GEMINI_MODEL ?? '')
   .split(',')

@@ -235,7 +235,8 @@ export default function DebuggerPanel({ dbg }: { dbg: DebuggerState }) {
         {analysis && (
           <div className="mt-2.5 space-y-2 rounded-md border border-violet-500/30 bg-violet-500/[0.06] p-2.5 text-xs">
             <p className="font-mono text-[10px] text-violet-300">
-              model: {analysis.model} · {analysis.latencyMs}ms{analysis.attempts > 1 ? ` · ${analysis.attempts} attempts` : ''}
+              model: {analysis.model} · {analysis.latencyMs}ms · {analysis.usage.totalTokens} tokens · {analysis.responseFormat}
+              {analysis.schemaFallback ? ' (schema rejected, fell back)' : ''}{analysis.attempts > 1 ? ` · ${analysis.attempts} attempts` : ''}
             </p>
             {(
               [

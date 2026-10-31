@@ -7,7 +7,7 @@
 //   POST   /api/rooms/:room/regression              { baselineId?, strategy? }
 //   POST   /api/rooms/:room/analyze                 { lastPassingId, firstFailingId, currentCode }
 //   POST   /api/verify                              { challengeId, sourceCode, edits }
-import { buildDebugPrompt, parseAnalysis, SYSTEM_PROMPT } from './analysis.js';
+import { ANALYSIS_SCHEMA, buildDebugPrompt, parseAnalysis, SYSTEM_PROMPT } from './analysis.js';
 import { CHALLENGES, publicChallenge } from './challenges.js';
 import { createRateLimiter, HttpError, json, readJson } from './http.js';
 import { ModelError } from './meta.js';
@@ -148,11 +148,13 @@ export function createDebugger({ store, runner, model, challenges = CHALLENGES, 
       const started = performance.now();
       // One retry: if the reply doesn't validate, tell the model why and ask again.
       let lastError = '';
+      const usage = { promptTokens: 0, completionTokens: 0, reasoningTokens: 0, totalTokens: 0 };
+      const requestIds = [];
       for (let attempt = 1; attempt <= 2; attempt++) {
         const prompt = attempt === 1 ? user : `${user}\n\nYour previous answer was rejected: ${lastError}\nReply again with only the JSON object.`;
-        let text;
+        let result;
         try {
-          text = await model.complete({ system: SYSTEM_PROMPT, user: prompt });
+          result = await model.complete({ system: SYSTEM_PROMPT, user: prompt, schema: { name: 'debug_analysis', schema: ANALYSIS_SCHEMA } });
         } catch (err) {
           if (err instanceof ModelError) {
             // Sanitized upstream details (key redacted) help diagnose integration problems.
@@ -160,7 +162,9 @@ export function createDebugger({ store, runner, model, challenges = CHALLENGES, 
           }
           throw err;
         }
-        const parsed = parseAnalysis(text, currentCode);
+        if (result.usage) for (const k of Object.keys(usage)) usage[k] += result.usage[k];
+        if (result.id) requestIds.push(result.id);
+        const parsed = parseAnalysis(result.text, currentCode);
         if (parsed.ok) {
           return {
             analysis: parsed.analysis,
@@ -169,6 +173,10 @@ export function createDebugger({ store, runner, model, challenges = CHALLENGES, 
             model: model.model,
             attempts: attempt,
             latencyMs: Math.round(performance.now() - started),
+            responseFormat: result.responseFormat,
+            schemaFallback: Boolean(result.schemaFallback),
+            usage,
+            requestIds,
           };
         }
         lastError = parsed.error;

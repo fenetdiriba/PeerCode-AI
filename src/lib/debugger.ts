@@ -99,6 +99,10 @@ export interface AnalyzeResponse {
   model: string;
   attempts: number;
   latencyMs: number;
+  responseFormat: 'json_schema' | 'json_object' | 'none';
+  schemaFallback: boolean;
+  usage: { promptTokens: number; completionTokens: number; reasoningTokens: number; totalTokens: number };
+  requestIds: string[];
 }
 
 export interface VerifyResponse {

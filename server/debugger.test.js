@@ -21,16 +21,19 @@ const fix = {
 
 function scriptedModel(replies) {
   const prompts = [];
+  const schemas = [];
   return {
     prompts,
+    schemas,
     client: {
       model: 'scripted-test-model',
       available: true,
-      complete: async ({ user }) => {
+      complete: async ({ user, schema }) => {
         prompts.push(user);
+        schemas.push(schema);
         const next = replies.shift();
         if (next instanceof Error) throw next;
-        return next;
+        return { text: next, id: `scripted-${prompts.length}`, finishReason: 'stop', usage: null, responseFormat: 'json_schema' };
       },
     },
   };
@@ -61,7 +64,7 @@ async function seedDemo(call, room) {
 }
 
 test('full pipeline: locate, analyze, verify, and the apply rule', async () => {
-  const { client, prompts } = scriptedModel([JSON.stringify(fix)]);
+  const { client, prompts, schemas } = scriptedModel([JSON.stringify(fix)]);
   await withServer(client, async (call) => {
     const ids = await seedDemo(call, 'pipeline');
 
@@ -83,6 +86,8 @@ test('full pipeline: locate, analyze, verify, and the apply rule', async () => {
     assert.equal(status, 200, JSON.stringify(an));
     assert.equal(an.model, 'scripted-test-model');
     assert.match(prompts[0], /expected 12, got 4/);
+    assert.equal(schemas[0].name, 'debug_analysis');
+    assert.equal(an.responseFormat, 'json_schema');
 
     const { body: ver } = await call('POST', '/verify', { challengeId: 'cart-total', sourceCode: currentCode, edits: an.analysis.edits });
     assert.equal(ver.run.status, 'passed');

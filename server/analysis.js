@@ -57,6 +57,43 @@ ${currentCode}
 CODE>>>`;
 }
 
+const field = (description) => ({ type: 'string', minLength: 1, maxLength: 2000, description });
+
+/**
+ * JSON Schema for Meta structured output (response_format.json_schema, strict: true).
+ * Meets Meta's strict subset: plain object root, additionalProperties: false on every object,
+ * every property required, no allOf/oneOf. Decoding is constrained to it; parseAnalysis still
+ * validates everything (and that the edits apply), since a schema can't check that `find`
+ * occurs exactly once in the code.
+ */
+export const ANALYSIS_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['failedBehavior', 'whatChanged', 'probableRootCause', 'explanation', 'edits', 'confidenceNotes'],
+  properties: {
+    failedBehavior: field('What behavior failed, in one or two sentences.'),
+    whatChanged: field('What changed between the passing and failing checkpoints.'),
+    probableRootCause: field('The most likely root cause, one sentence.'),
+    explanation: field('Short reasoning connecting the change to the failing tests.'),
+    edits: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 8,
+      description: 'Minimal find/replace edits to the CURRENT code. Usually one.',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['find', 'replace'],
+        properties: {
+          find: { type: 'string', minLength: 1, maxLength: 4000, description: 'Exact text copied from the CURRENT code; must occur exactly once.' },
+          replace: { type: 'string', maxLength: 4000, description: 'Replacement text.' },
+        },
+      },
+    },
+    confidenceNotes: field('What is uncertain or not covered by the tests.'),
+  },
+};
+
 /** Take the JSON object out of a reply that may be fenced or have stray text around it. */
 export function extractJsonObject(text) {
   if (typeof text !== 'string') return null;

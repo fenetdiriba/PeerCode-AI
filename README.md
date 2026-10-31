@@ -49,7 +49,7 @@ npm run smoke:meta
 ```
 Step 1 sends one minimal request to `https://api.meta.ai/v1/chat/completions` (`muse-spark-1.3`), so a key, model or network problem shows up on its own. Step 2 runs the real workflow on the demo history: locate the regression, get a Muse Spark analysis and patch, validate it, verify it with the real tests, apply it as a new checkpoint, and re-test. On failure it prints the error code, Meta's HTTP status, the sanitized error detail (key redacted) and what to fix. The key is never printed.
 
-- `401`/`403`: bad or inactive key. `404`: model id or endpoint wrong (`META_MODEL`, `META_BASE_URL`). `400` mentioning `response_format`: re-run with `META_JSON_MODE=off`. `invalid-response`: the reply shape differs from what `readText()` in `server/meta.js` expects.
+- `401`/`403`: bad or inactive key. `404`: model id or endpoint wrong (`META_MODEL`, `META_BASE_URL`). `400` mentioning `response_format` or the schema: re-run with `META_RESPONSE_FORMAT=json_object`. `invalid-response`: the reply shape differs from what `readText()` in `server/meta.js` expects.
 - Behind an HTTP proxy (corporate network, some cloud sandboxes), Node's `fetch` ignores `HTTPS_PROXY` unless you run with `NODE_USE_ENV_PROXY=1` (Node ≥ 22.21).
 - If a proxy adds the key for you (e.g. a Claude Code **network secret** for `api.meta.ai`), run with `META_AUTH=injected`: the app then sends no `Authorization` header and needs no `MODEL_API_KEY`:
   ```bash
@@ -104,7 +104,7 @@ Server (`.env` locally, or the host's variables):
 |---|---|
 | `MODEL_API_KEY` | Meta Model API key. Enables Muse Spark analysis. Server-only; never put it in a `VITE_` variable. |
 | `META_BASE_URL` / `META_MODEL` | Default `https://api.meta.ai/v1` / `muse-spark-1.3`. |
-| `META_JSON_MODE` | `off` stops sending `response_format` if the API rejects it. |
+| `META_RESPONSE_FORMAT` | `json_schema` (default: Meta strict structured output), `json_object`, or `none`. |
 | `META_AUTH` | `injected` when an egress proxy adds the Authorization header (no key in the app). |
 | `REVISIONS_DIR` | Checkpoint storage, default `./data/revisions`. Use a persistent volume in production (Railway's disk is ephemeral). |
 | `TEST_TIMEOUT_MS` | Wall-clock limit per test run, default 8000. |

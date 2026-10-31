@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildRequest, createMetaClient, ModelError, readText, sanitize } from './meta.js';
+import { ANALYSIS_SCHEMA } from './analysis.js';
+import { buildRequest, createMetaClient, ModelError, normalizeUsage, readText, responseFormatFromEnv, sanitize } from './meta.js';
 
 const KEY = 'sk-test-secret-123';
 const reply = (status, body) => async () => ({ ok: status >= 200 && status < 300, status, text: async () => (typeof body === 'string' ? body : JSON.stringify(body)) });
@@ -24,7 +25,7 @@ test('sends model, messages and bearer auth to /chat/completions', async () => {
       return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: '{"a":1}' } }] }) };
     },
   });
-  assert.equal(await client.complete({ system: 'sys', user: 'usr' }), '{"a":1}');
+  assert.equal((await client.complete({ system: 'sys', user: 'usr' })).text, '{"a":1}');
   assert.equal(seen.url, 'https://api.example.test/v1/chat/completions');
   assert.equal(seen.init.headers.Authorization, `Bearer ${KEY}`);
   const body = JSON.parse(seen.init.body);
@@ -40,9 +41,67 @@ test('readText understands the known response shapes', () => {
   assert.equal(readText({ something: 'else' }), null);
 });
 
-test('buildRequest omits response_format when JSON mode is off', () => {
-  assert.ok(buildRequest({ model: 'm', system: 's', user: 'u', jsonMode: true }).response_format);
-  assert.equal(buildRequest({ model: 'm', system: 's', user: 'u', jsonMode: false }).response_format, undefined);
+test('buildRequest: strict json_schema with a schema, json_object without, nothing for none', () => {
+  const schema = { name: 'debug_analysis', schema: ANALYSIS_SCHEMA };
+  const strict = buildRequest({ model: 'm', system: 's', user: 'u', responseFormat: 'json_schema', schema });
+  assert.deepEqual(strict.response_format, { type: 'json_schema', json_schema: { name: 'debug_analysis', strict: true, schema: ANALYSIS_SCHEMA } });
+  assert.deepEqual(buildRequest({ model: 'm', system: 's', user: 'u', responseFormat: 'json_schema' }).response_format, { type: 'json_object' });
+  assert.deepEqual(buildRequest({ model: 'm', system: 's', user: 'u', responseFormat: 'json_object', schema }).response_format, { type: 'json_object' });
+  assert.equal(buildRequest({ model: 'm', system: 's', user: 'u', responseFormat: 'none', schema }).response_format, undefined);
+  assert.equal(responseFormatFromEnv({}), 'json_schema');
+  assert.equal(responseFormatFromEnv({ META_RESPONSE_FORMAT: 'none' }), 'none');
+  assert.equal(responseFormatFromEnv({ META_RESPONSE_FORMAT: 'bogus' }), 'json_schema');
+});
+
+test('ANALYSIS_SCHEMA follows Meta strict-mode rules', () => {
+  const walk = (node, path) => {
+    if (!node || typeof node !== 'object') return;
+    for (const banned of ['allOf', 'oneOf']) assert.equal(node[banned], undefined, `${path}.${banned}`);
+    if (node.type === 'object') {
+      assert.equal(node.additionalProperties, false, `${path} additionalProperties`);
+      assert.deepEqual([...node.required].sort(), Object.keys(node.properties).sort(), `${path} required`);
+      for (const [k, v] of Object.entries(node.properties)) walk(v, `${path}.${k}`);
+    }
+    if (node.items) walk(node.items, `${path}[]`);
+  };
+  assert.equal(ANALYSIS_SCHEMA.type, 'object');
+  walk(ANALYSIS_SCHEMA, '$');
+});
+
+test('json_schema rejected with 400 falls back once to json_object; other 400s do not', async () => {
+  const bodies = [];
+  const client = createMetaClient({
+    apiKey: KEY,
+    fetchImpl: async (_url, init) => {
+      const body = JSON.parse(init.body);
+      bodies.push(body);
+      if (body.response_format.type === 'json_schema') {
+        return { ok: false, status: 400, text: async () => JSON.stringify({ error: { message: 'Invalid schema for response_format', param: 'response_format' } }) };
+      }
+      return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: '{}' }, finish_reason: 'stop' }] }) };
+    },
+  });
+  const r = await client.complete({ system: 's', user: 'u', schema: { name: 'x', schema: ANALYSIS_SCHEMA } });
+  assert.equal(r.schemaFallback, true);
+  assert.equal(r.responseFormat, 'json_object');
+  assert.deepEqual(bodies.map((b) => b.response_format.type), ['json_schema', 'json_object']);
+
+  const other = createMetaClient({ apiKey: KEY, fetchImpl: reply(400, { error: { message: '`top_p`: The number must be `<= 1.0`.', param: 'top_p' } }) });
+  await assert.rejects(other.complete({ system: 's', user: 'u', schema: { name: 'x', schema: ANALYSIS_SCHEMA } }), (e) => e.code === 'bad-request');
+});
+
+test('refusals and truncated answers are errors; usage is normalized', async () => {
+  const refusal = createMetaClient({ apiKey: KEY, fetchImpl: reply(200, { choices: [{ message: { content: '', refusal: 'no' }, finish_reason: 'stop' }] }) });
+  await assert.rejects(refusal.complete({ system: 's', user: 'u' }), (e) => e.code === 'invalid-response' && /refused/.test(e.message));
+  const cut = createMetaClient({ apiKey: KEY, fetchImpl: reply(200, { choices: [{ message: { content: '{"a":' }, finish_reason: 'length' }] }) });
+  await assert.rejects(cut.complete({ system: 's', user: 'u' }), (e) => e.code === 'invalid-response' && /output tokens/.test(e.message));
+  const ok = createMetaClient({
+    apiKey: KEY,
+    fetchImpl: reply(200, { id: 'chatcmpl-1', choices: [{ message: { content: '{}' }, finish_reason: 'stop' }], usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30, completion_tokens_details: { reasoning_tokens: 15 } } }),
+  });
+  const r = await ok.complete({ system: 's', user: 'u' });
+  assert.deepEqual([r.id, r.finishReason, r.usage], ['chatcmpl-1', 'stop', { promptTokens: 10, completionTokens: 20, reasoningTokens: 15, totalTokens: 30 }]);
+  assert.equal(normalizeUsage(undefined), null);
 });
 
 test('HTTP errors map to safe, specific errors that never contain the key', async () => {
@@ -103,7 +162,7 @@ test('injected auth mode sends no Authorization header and needs no key', async 
     },
   });
   assert.equal(client.available, true);
-  assert.equal(await client.complete({ system: 's', user: 'u' }), 'x');
+  assert.equal((await client.complete({ system: 's', user: 'u' })).text, 'x');
   assert.equal('Authorization' in headers, false);
   const rejected = createMetaClient({ apiKey: undefined, authMode: 'injected', fetchImpl: reply(401, { error: { message: 'bad key' } }) });
   await assert.rejects(rejected.complete({ system: 's', user: 'u' }), (e) => e.code === 'auth' && /network secret/.test(e.message));

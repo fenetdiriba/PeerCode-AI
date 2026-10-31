@@ -28,6 +28,8 @@ export type VerificationState =
   | { status: 'error'; sourceCode: string; message: string };
 
 const TIMELINE_KEY = 'timelineVersion';
+/** The room's active debugging challenge, shared so collaborators work on the same one. */
+const CHALLENGE_KEY = 'challengeId';
 
 /**
  * State and actions for the time-travel debugger in one room. Checkpoints live on the server;
@@ -35,9 +37,10 @@ const TIMELINE_KEY = 'timelineVersion';
  * updates when anyone checkpoints.
  */
 export function useDebugger(roomId: string, session: RoomSession | null, authorName: string, setLanguage: (l: LanguageId) => void) {
-  const [challenge, setChallenge] = useState<Challenge | null>(null);
+  const [challenges, setChallenges] = useState<Challenge[]>([]);
+  const [challengeId, setChallengeId] = useState<string | null>(null);
   const [ai, setAi] = useState<{ available: boolean; model: string } | null>(null);
-  const [revisions, setRevisions] = useState<CodeRevision[]>([]);
+  const [allRevisions, setAllRevisions] = useState<CodeRevision[]>([]);
   const [runs, setRuns] = useState<Record<string, RunSummary>>({});
   const [report, setReport] = useState<RegressionReport | null>(null);
   const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null);
@@ -49,13 +52,16 @@ export function useDebugger(roomId: string, session: RoomSession | null, authorN
   const [liveCode, setLiveCode] = useState('');
   const [serverError, setServerError] = useState<string | null>(null);
 
+  const challenge = useMemo(() => challenges.find((c) => c.id === challengeId) ?? challenges[0] ?? null, [challenges, challengeId]);
+  // The timeline shows only the active challenge's checkpoints.
+  const revisions = useMemo(() => allRevisions.filter((r) => r.challengeId === challenge?.id), [allRevisions, challenge]);
   const ytext = useMemo(() => (session && challenge ? session.getCode(challenge.language) : null), [session, challenge]);
 
   useEffect(() => {
     debuggerApi
       .challenges()
       .then(({ challenges, ai }) => {
-        setChallenge(challenges[0] ?? null);
+        setChallenges(challenges);
         setAi(ai);
         setServerError(null);
       })
@@ -74,7 +80,7 @@ export function useDebugger(roomId: string, session: RoomSession | null, authorN
   const refresh = useCallback(async () => {
     try {
       const { revisions } = await debuggerApi.listRevisions(roomId);
-      setRevisions(revisions);
+      setAllRevisions(revisions);
       setServerError(null);
     } catch (e) {
       setServerError((e as Error).message);
@@ -86,8 +92,10 @@ export function useDebugger(roomId: string, session: RoomSession | null, authorN
     const meta = session.meta;
     const onMeta = (e: { keysChanged: Set<string> }) => {
       if (e.keysChanged.has(TIMELINE_KEY)) refresh();
+      if (e.keysChanged.has(CHALLENGE_KEY)) setChallengeId((meta.get(CHALLENGE_KEY) as string | undefined) ?? null);
     };
     meta.observe(onMeta);
+    setChallengeId((meta.get(CHALLENGE_KEY) as string | undefined) ?? null);
     refresh();
     return () => meta.unobserve(onMeta);
   }, [session, refresh]);
@@ -121,6 +129,22 @@ export function useDebugger(roomId: string, session: RoomSession | null, authorN
     setVerification({ status: 'idle' });
   };
 
+  useEffect(() => {
+    resetPipeline();
+    setView({ kind: 'live' });
+    setError(null);
+  }, [challenge?.id]);
+
+  const selectChallenge = useCallback(
+    (id: string) => {
+      const next = challenges.find((c) => c.id === id);
+      if (!session || !next) return;
+      session.meta.set(CHALLENGE_KEY, id);
+      setLanguage(next.language);
+    },
+    [session, challenges, setLanguage],
+  );
+
   const checkpoint = useCallback(
     async (label: string) => {
       if (!challenge || !ytext) return;
@@ -151,7 +175,7 @@ export function useDebugger(roomId: string, session: RoomSession | null, authorN
     setError(null);
     setLanguage(challenge.language);
     try {
-      await debuggerApi.clearRevisions(roomId);
+      await debuggerApi.clearRevisions(roomId, challenge.id);
       setRuns({});
       resetPipeline();
       setView({ kind: 'live' });
@@ -192,11 +216,12 @@ export function useDebugger(roomId: string, session: RoomSession | null, authorN
   );
 
   const locate = useCallback(async (strategy: RegressionReport['strategy'] = 'bisect+verify') => {
+    if (!challenge) return;
     setBusy('locate');
     setError(null);
     resetPipeline();
     try {
-      const { report } = await debuggerApi.locateRegression(roomId, { strategy });
+      const { report } = await debuggerApi.locateRegression(roomId, { challengeId: challenge.id, strategy });
       setReport(report);
       setRuns((prev) => {
         const next = { ...prev };
@@ -214,7 +239,7 @@ export function useDebugger(roomId: string, session: RoomSession | null, authorN
     } finally {
       setBusy(null);
     }
-  }, [roomId]);
+  }, [roomId, challenge]);
 
   const verify = useCallback(
     async (edits: AnalyzeResponse['analysis']['edits'], sourceCode: string) => {
@@ -301,6 +326,8 @@ export function useDebugger(roomId: string, session: RoomSession | null, authorN
 
   return {
     challenge,
+    challenges,
+    selectChallenge,
     ai,
     serverError,
     revisions,

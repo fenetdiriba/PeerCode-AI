@@ -24,10 +24,16 @@ const MAX_STDOUT_BYTES = 256 * 1024;
  * }} TestRun
  */
 
-/** @returns {{ ok: true, js: string } | { ok: false, message: string }} */
-export function compileTypeScript(source) {
+/**
+ * TypeScript has its types stripped; both languages get ES module syntax turned into
+ * CommonJS so `export` works in the vm context.
+ * @param {'typescript' | 'javascript'} [language]
+ * @returns {{ ok: true, js: string } | { ok: false, message: string }}
+ */
+export function compileSource(source, language = 'typescript') {
   try {
-    return { ok: true, js: transform(source, { transforms: ['typescript', 'imports'], disableESTransforms: true }).code };
+    const transforms = language === 'typescript' ? ['typescript', 'imports'] : ['imports'];
+    return { ok: true, js: transform(source, { transforms, disableESTransforms: true }).code };
   } catch (err) {
     return { ok: false, message: String(err?.message ?? err).slice(0, 500) };
   }
@@ -79,7 +85,7 @@ export function createRunner({ timeoutMs = 8000, caseTimeoutMs = 1000, maxConcur
     const elapsed = () => Math.round(performance.now() - started);
     const total = challenge.tests.length;
 
-    const compiled = compileTypeScript(sourceCode);
+    const compiled = compileSource(sourceCode, challenge.language);
     if (!compiled.ok) {
       return { status: 'error', errorKind: 'compile', message: compiled.message, cases: [], passed: 0, total, logs: [], durationMs: elapsed() };
     }
@@ -135,7 +141,7 @@ export function createRunner({ timeoutMs = 8000, caseTimeoutMs = 1000, maxConcur
           settle(parsed);
         });
         child.stdin.on('error', () => {}); // the child may die before reading everything
-        child.stdin.end(JSON.stringify({ js: compiled.js, tests: challenge.tests, caseTimeoutMs }));
+        child.stdin.end(JSON.stringify({ js: compiled.js, support: challenge.support ?? '', tests: challenge.tests, caseTimeoutMs }));
       });
       return { ...result, durationMs: elapsed() };
     } finally {

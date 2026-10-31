@@ -85,7 +85,7 @@ test('full pipeline: locate, analyze, verify, and the apply rule', async () => {
     });
     assert.equal(status, 200, JSON.stringify(an));
     assert.equal(an.model, 'scripted-test-model');
-    assert.match(prompts[0], /expected 12, got 4/);
+    assert.match(prompts[0], /expected: 12\n  got: {6}4/);
     assert.equal(schemas[0].name, 'debug_analysis');
     assert.equal(an.responseFormat, 'json_schema');
 
@@ -170,5 +170,30 @@ test('per-revision test endpoint and input validation', async () => {
     assert.equal((await call('POST', '/rooms/single/revisions/missing/test')).status, 404);
     assert.equal((await call('POST', '/rooms/single/revisions', { sourceCode: 'x', challengeId: 'nope' })).status, 400);
     assert.equal((await call('GET', '/rooms/BAD!/revisions')).status, 404);
+  });
+});
+
+test('search-race: regression found at "Extract runSearch helper", scoped per challenge', async () => {
+  const search = CHALLENGES['search-race'];
+  await withServer(scriptedModel([]).client, async (call) => {
+    await seedDemo(call, 'mixed'); // cart history in the same room
+    const ids = [];
+    for (const step of search.demoSteps) {
+      const { body } = await call('POST', '/rooms/mixed/revisions', { sourceCode: step.code, label: step.label, author: step.author, challengeId: search.id });
+      ids.push(body.revision.id);
+    }
+    const { body } = await call('POST', '/rooms/mixed/regression', { challengeId: search.id });
+    assert.equal(body.report.outcome, 'found');
+    assert.equal(body.report.firstFailingRevisionId, ids[2]);
+    assert.equal(body.report.revisionsInRange, 5);
+    const failing = body.report.firstFailingRun.cases.filter((c) => c.status !== 'passed').map((c) => c.name);
+    assert.deepEqual(failing, ['clearing the input discards an in-flight search', 'a stale error after clearing is ignored']);
+
+    // Unscoped search over mixed challenges is refused rather than guessed.
+    assert.equal((await call('POST', '/rooms/mixed/regression', {})).status, 400);
+
+    // Clearing one challenge keeps the other's history.
+    const cleared = await call('DELETE', '/rooms/mixed/revisions', { challengeId: search.id });
+    assert.deepEqual([...new Set(cleared.body.revisions.map((r) => r.challengeId))], ['cart-total']);
   });
 });

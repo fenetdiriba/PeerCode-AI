@@ -1,6 +1,10 @@
 // Runs inside a separate Node process started by runner.js with the permission model on
 // (no fs writes, no child processes, no workers) and an empty environment.
-// Reads { js, tests, caseTimeoutMs } from stdin and writes one JSON result to stdout.
+// Reads { js, support, tests, caseTimeoutMs } from stdin and writes one JSON result to stdout.
+// `support` is trusted, challenge-owned test code (e.g. scenario drivers with deferred
+// promises); it runs after the candidate code in the same context. A test case may return a
+// promise: it is awaited with a per-case timeout. No timers exist in the context, so async
+// tests are driven by explicitly resolved promises and are deterministic.
 //
 // Candidate code runs in a fresh vm context with no require/process/fetch. vm is NOT a
 // security boundary; the process-level restrictions above are the real (partial) guard.
@@ -23,7 +27,7 @@ function readStdin() {
 const errorText = (err) => (err && err.name ? `${err.name}: ${err.message}` : String(err)).slice(0, MAX_LINE);
 
 async function main() {
-  const { js, tests, caseTimeoutMs } = JSON.parse(await readStdin());
+  const { js, support, tests, caseTimeoutMs } = JSON.parse(await readStdin());
   const logs = [];
   const log = (...args) => {
     if (logs.length < MAX_LOG_LINES) logs.push(args.map((a) => (typeof a === 'string' ? a : safeJson(a))).join(' ').slice(0, MAX_LINE));
@@ -45,6 +49,13 @@ async function main() {
     const timedOut = err && err.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT';
     return finish({ status: 'error', errorKind: timedOut ? 'timeout' : 'runtime', message: errorText(err), cases: [], logs });
   }
+  if (support) {
+    try {
+      vm.runInContext(support, context, { timeout: caseTimeoutMs, filename: 'challenge-tests.js' });
+    } catch (err) {
+      return finish({ status: 'error', errorKind: 'infrastructure', message: `Test support code failed: ${errorText(err)}`, cases: [], logs });
+    }
+  }
 
   const cases = [];
   for (const t of tests) {
@@ -53,17 +64,20 @@ async function main() {
     context.__fnName = t.fn;
     context.__argsJson = JSON.stringify(t.args);
     try {
-      const resultJson = vm.runInContext(
+      // The synchronous part runs under vm's timeout; a returned promise is awaited below.
+      const out = vm.runInContext(
         `(() => {
           const f = typeof globalThis[__fnName] === 'function' ? globalThis[__fnName]
             : typeof module.exports[__fnName] === 'function' ? module.exports[__fnName]
             : typeof exports[__fnName] === 'function' ? exports[__fnName] : undefined;
           if (!f) throw new ReferenceError(__fnName + ' is not defined as a top-level function');
-          return JSON.stringify({ v: f(...JSON.parse(__argsJson)) });
+          const r = f(...JSON.parse(__argsJson));
+          return r && typeof r.then === 'function' ? Promise.resolve(r).then((v) => JSON.stringify({ v })) : JSON.stringify({ v: r });
         })()`,
         context,
         { timeout: caseTimeoutMs },
       );
+      const resultJson = typeof out === 'string' ? out : await withTimeout(out, caseTimeoutMs);
       const actual = JSON.parse(resultJson).v;
       const passed = isDeepStrictEqual(actual, t.expected);
       cases.push({ name: t.name, status: passed ? 'passed' : 'failed', expected: t.expected, actual });
@@ -79,6 +93,15 @@ async function main() {
   const timedOut = cases.some((c) => c.status === 'error');
   const allPassed = cases.every((c) => c.status === 'passed');
   finish({ status: timedOut ? 'error' : allPassed ? 'passed' : 'failed', errorKind: timedOut ? 'timeout' : undefined, cases, logs });
+}
+
+/** Await a promise, rejecting like vm's timeout if it doesn't settle in time. */
+function withTimeout(promise, ms) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(Object.assign(new Error(`Timed out after ${ms}ms`), { code: 'ERR_SCRIPT_EXECUTION_TIMEOUT' })), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
 function safeJson(v) {

@@ -40,12 +40,16 @@ Open `http://localhost:3000`, click **Create a room**, then open the same URL in
 6. To show conflict safety, type something in the *other* browser. Apply is blocked ("the live code changed after this patch was verified"). Click **Re-verify against live code**.
 7. **Review patch**, then **Apply verified patch**. The edit goes through the shared Y.Doc for everyone and is saved as a new checkpoint. Run its tests from the timeline: 5/5.
 
+### Second challenge: a stale-response race (JavaScript)
+Pick **Typeahead search: stale responses** in the Debugger panel's challenge list (it syncs to everyone in the room) and load its demo. It's a `createSearch(fetchResults)` store that drops out-of-order responses with a request counter. At checkpoint #3, Developer B extracts a `runSearch` helper. The `++latestRequest` increment moves into the helper, so the diff looks harmless, but clearing the input no longer invalidates the request in flight: type "rea", clear the box, and when the old response lands the empty search box shows React results. The 8 tests are deterministic scenarios: a trusted driver hands out deferred promises, resolves or rejects them in a scripted order, and flushes microtasks after each step. There are no timers and no sleeps.
+
 ### Checking the real Meta API (run this first)
 ```bash
 # .env is gitignored. Never commit it.
 echo 'MODEL_API_KEY=your-key-here' >> .env
 npm install
-npm run smoke:meta
+npm run smoke:meta                         # cart challenge
+npm run smoke:meta -- --challenge=all      # both challenges
 ```
 Step 1 sends one minimal request to `https://api.meta.ai/v1/chat/completions` (`muse-spark-1.3`), so a key, model or network problem shows up on its own. Step 2 runs the real workflow on the demo history: locate the regression, get a Muse Spark analysis and patch, validate it, verify it with the real tests, apply it as a new checkpoint, and re-test. On failure it prints the error code, Meta's HTTP status, the sanitized error detail (key redacted) and what to fix. The key is never printed.
 
@@ -122,8 +126,8 @@ npm run smoke:meta   # manual: the real Meta API, end to end
 The automated pipeline test (`server/debugger.test.js`) uses a **scripted model**. It's labelled as a mock and never stands in for the real demo.
 
 ## Limitations and future work
-- Structured output uses `json_object` plus our own validation and one retry. Meta's documented `json_schema` mode (constrained decoding) would make invalid replies impossible. Not switched yet.
-- One language (TypeScript) and one challenge. Tests are data-driven calls of top-level functions with JSON-comparable results.
+- Structured output uses Meta's strict `json_schema`. Our own validation (edits must apply uniquely) and one retry stay as a second line of defence.
+- Two challenges (TypeScript cart total, JavaScript async search). Tests are data-driven calls with JSON-comparable results, optionally through a trusted scenario driver.
 - Execution is constrained, not sandboxed (see above). Next: a container or microVM runner.
 - Regression reports and AI analyses are per-viewer (not synced). Checkpoints and code are shared.
 - Checkpoint storage is a JSON file per room. Fine for a demo, not for concurrent server instances.

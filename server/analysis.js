@@ -31,24 +31,41 @@ Rules for "edits":
  * }} ctx
  */
 export function buildDebugPrompt({ challenge, lastPassing, firstFailing, failingRun, currentCode }) {
+  // Every test with its status, so the model knows what IS covered (not only what failed).
+  const byName = new Map(failingRun.cases.map((c) => [c.name, c]));
+  const suite = (challenge.tests ?? [])
+    .map((t) => {
+      const c = byName.get(t.name);
+      return `- [${c ? c.status.toUpperCase() : 'NOT RUN'}] ${t.name}`;
+    })
+    .join('\n');
   const failures = failingRun.cases
     .filter((c) => c.status !== 'passed')
-    .map((c) => `- ${c.name}: expected ${JSON.stringify(c.expected)}, got ${c.error ? `error "${c.error}"` : JSON.stringify(c.actual)}`)
+    .map((c) => {
+      const test = challenge.tests?.find((t) => t.name === c.name);
+      const input = test ? `\n  call: ${test.fn}(${test.args.map((a) => JSON.stringify(a)).join(', ')})` : '';
+      return `- ${c.name}${input}\n  expected: ${JSON.stringify(c.expected)}\n  got:      ${c.error ? `error "${c.error}"` : JSON.stringify(c.actual)}`;
+    })
     .join('\n');
   const summary =
     failingRun.status === 'error'
       ? `Run error (${failingRun.errorKind}): ${failingRun.message ?? ''}`
       : `${failingRun.passed}/${failingRun.total} tests passed.`;
+  const driver = challenge.support ? `\nTrusted test driver (not part of the code you edit):\n<<<DRIVER\n${challenge.support.trim()}\nDRIVER>>>\n` : '';
   return `Challenge: ${challenge.title} (${challenge.language})
 Specification: ${challenge.description}
-
+How the tests work: ${challenge.testNotes ?? 'Each test calls a top-level function and compares the JSON result exactly.'}
+${driver}
 Last passing checkpoint: #${lastPassing.sequenceNumber} "${lastPassing.label}" by ${lastPassing.author || 'unknown'}
 First failing checkpoint: #${firstFailing.sequenceNumber} "${firstFailing.label}" by ${firstFailing.author || 'unknown'}
 
 Diff from last passing to first failing (- removed, + added):
 ${unifiedDiff(lastPassing.sourceCode, firstFailing.sourceCode)}
 
-Failing test results at the first failing checkpoint (${summary}):
+Full test suite at the first failing checkpoint (${summary}):
+${suite}
+
+Failing tests in detail:
 ${failures || '(no per-test detail)'}
 
 CURRENT code (your edits must apply to this exact text):

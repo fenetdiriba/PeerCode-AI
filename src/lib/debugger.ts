@@ -13,8 +13,9 @@ export interface Challenge {
   id: string;
   title: string;
   description: string;
-  language: 'typescript';
+  language: 'typescript' | 'javascript';
   starterCode: string;
+  testNotes: string;
   tests: TestCase[];
   demoSteps: { label: string; author: string; code: string }[];
 }
@@ -140,9 +141,9 @@ export const debuggerApi = {
   listRevisions: (roomId: string) => api<{ revisions: CodeRevision[] }>('GET', `/rooms/${roomId}/revisions`),
   createRevision: (roomId: string, input: { sourceCode: string; label: string; author: string; challengeId: string }) =>
     api<{ revision: CodeRevision }>('POST', `/rooms/${roomId}/revisions`, input),
-  clearRevisions: (roomId: string) => api<{ revisions: CodeRevision[] }>('DELETE', `/rooms/${roomId}/revisions`),
+  clearRevisions: (roomId: string, challengeId: string) => api<{ revisions: CodeRevision[] }>('DELETE', `/rooms/${roomId}/revisions`, { challengeId }),
   testRevision: (roomId: string, revisionId: string) => api<{ revisionId: string; run: TestRun }>('POST', `/rooms/${roomId}/revisions/${revisionId}/test`, {}),
-  locateRegression: (roomId: string, opts: { baselineId?: string; strategy?: 'bisect+verify' | 'linear' } = {}) =>
+  locateRegression: (roomId: string, opts: { challengeId: string; baselineId?: string; strategy?: 'bisect+verify' | 'linear' }) =>
     api<{ report: RegressionReport }>('POST', `/rooms/${roomId}/regression`, opts),
   analyze: (roomId: string, input: { lastPassingId: string; firstFailingId: string; currentCode: string }) =>
     api<AnalyzeResponse>('POST', `/rooms/${roomId}/analyze`, input),

@@ -2,9 +2,9 @@
 //   GET    /api/challenges
 //   GET    /api/rooms/:room/revisions
 //   POST   /api/rooms/:room/revisions               { sourceCode, label, author, challengeId }
-//   DELETE /api/rooms/:room/revisions               clear the room's history (demo restart)
+//   DELETE /api/rooms/:room/revisions               { challengeId? } clear history (demo restart)
 //   POST   /api/rooms/:room/revisions/:id/test      run the challenge tests on one revision
-//   POST   /api/rooms/:room/regression              { baselineId?, strategy? }
+//   POST   /api/rooms/:room/regression              { challengeId?, baselineId?, strategy? }
 //   POST   /api/rooms/:room/analyze                 { lastPassingId, firstFailingId, currentCode }
 //   POST   /api/verify                              { challengeId, sourceCode, edits }
 import { ANALYSIS_SCHEMA, buildDebugPrompt, parseAnalysis, SYSTEM_PROMPT } from './analysis.js';
@@ -104,8 +104,10 @@ export function createDebugger({ store, runner, model, challenges = CHALLENGES, 
         }
       }
       if (method === 'DELETE') {
-        await store.clear(roomId);
-        return { revisions: [] };
+        const { challengeId } = await body();
+        if (challengeId !== undefined) getChallenge(challengeId);
+        await store.clear(roomId, challengeId);
+        return { revisions: await store.list(roomId) };
       }
     }
 
@@ -116,9 +118,11 @@ export function createDebugger({ store, runner, model, challenges = CHALLENGES, 
     }
 
     if (rest[0] === 'regression' && rest.length === 1 && method === 'POST') {
-      const { baselineId, strategy } = await body();
+      const { challengeId, baselineId, strategy } = await body();
       if (strategy !== undefined && strategy !== 'bisect+verify' && strategy !== 'linear') throw new HttpError(400, 'Invalid strategy.');
-      const revisions = await store.list(roomId);
+      if (challengeId !== undefined) getChallenge(challengeId);
+      // A room can hold several challenges' histories; search only the requested one.
+      const revisions = (await store.list(roomId)).filter((r) => challengeId === undefined || r.challengeId === challengeId);
       if (baselineId !== undefined && !revisions.some((r) => r.id === baselineId)) throw new HttpError(404, 'Baseline checkpoint not found.');
       const start = baselineId ? revisions.findIndex((r) => r.id === baselineId) : 0;
       const ids = new Set(revisions.slice(start).map((r) => r.challengeId));

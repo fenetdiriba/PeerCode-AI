@@ -1,5 +1,5 @@
 // Manual end-to-end check against the REAL Meta Model API (not run by `npm test`).
-//   npm run smoke:meta          (reads MODEL_API_KEY from the environment or .env)
+//   npm run smoke:meta [-- --challenge=<id>|all]   (reads MODEL_API_KEY from the environment or .env)
 //   META_AUTH=injected NODE_USE_ENV_PROXY=1 npm run smoke:meta
 //                               (no key in this process: an egress proxy adds it, e.g. a
 //                                Claude Code network secret for api.meta.ai)
@@ -81,7 +81,7 @@ try {
 }
 
 // ---- Step 2: the real debugging workflow --------------------------------------------------
-console.log('\n[2/2] Real workflow on the demo history...');
+console.log('\n[2/2] Real workflow on the demo history (or histories)...');
 const app = createApp({ debuggerDeps: { store: createRevisionStore(), runner: createRunner(), model } });
 await new Promise((r) => app.server.listen(0, '127.0.0.1', r));
 const base = `http://127.0.0.1:${app.server.address().port}/api`;
@@ -90,21 +90,23 @@ const call = async (method, path, body) => {
   return { status: res.status, body: await res.json() };
 };
 
-let ok = false;
-try {
-  const cart = CHALLENGES['cart-total'];
+/** Run the whole workflow on one challenge's demo history. @returns {Promise<boolean>} */
+async function runWorkflow(cart, room) {
+ let ok = false;
+ try {
+  console.log(`\n=== ${cart.title} (${cart.id}, ${cart.language}) ===`);
   for (const s of cart.demoSteps) {
-    await call('POST', '/rooms/smoke/revisions', { sourceCode: s.code, label: s.label, author: s.author, challengeId: cart.id });
+    await call('POST', `/rooms/${room}/revisions`, { sourceCode: s.code, label: s.label, author: s.author, challengeId: cart.id });
   }
   console.log(`  Saved ${cart.demoSteps.length} checkpoints.`);
 
-  const { body: reg } = await call('POST', '/rooms/smoke/regression', {});
+  const { body: reg } = await call('POST', `/rooms/${room}/regression`, { challengeId: cart.id });
   console.log(`  Regression: ${reg.report.message} (${reg.report.executedRuns} test runs, ${reg.report.durationMs}ms)`);
   if (reg.report.outcome !== 'found') throw Object.assign(new Error('No regression found in the demo history.'), { step: 'locate' });
 
   const currentCode = cart.demoSteps.at(-1).code;
   console.log(`  Asking ${modelName} for root cause + patch...`);
-  const an = await call('POST', '/rooms/smoke/analyze', {
+  const an = await call('POST', `/rooms/${room}/analyze`, {
     lastPassingId: reg.report.lastPassingRevisionId,
     firstFailingId: reg.report.firstFailingRevisionId,
     currentCode,
@@ -133,14 +135,30 @@ try {
   // Apply under the same rule the UI enforces, then checkpoint and re-test.
   const decision = applyDecision({ liveCode: currentCode, sourceCode: currentCode, runStatus: ver.run.status });
   if (!decision.ok) throw Object.assign(new Error(decision.message), { step: 'apply' });
-  const { body: applied } = await call('POST', '/rooms/smoke/revisions', { sourceCode: ver.patchedCode, label: `Apply verified patch (${modelName})`, author: 'smoke test', challengeId: cart.id });
-  const { body: retest } = await call('POST', `/rooms/smoke/revisions/${applied.revision.id}/test`);
+  const { body: applied } = await call('POST', `/rooms/${room}/revisions`, { sourceCode: ver.patchedCode, label: `Apply verified patch (${modelName})`, author: 'smoke test', challengeId: cart.id });
+  const { body: retest } = await call('POST', `/rooms/${room}/revisions/${applied.revision.id}/test`);
   console.log(`  Applied as checkpoint #${applied.revision.sequenceNumber}; re-test: ${retest.run.status} (${retest.run.passed}/${retest.run.total})`);
   ok = retest.run.status === 'passed';
-  if (ok) console.log('\nSUCCESS: real Meta Muse Spark analysis → verified patch → applied → tests pass.');
-} catch (err) {
+  if (ok) console.log(`  SUCCESS (${cart.id}): real Muse Spark analysis → verified patch → applied → tests pass.`);
+ } catch (err) {
   if (!err.reported) console.error(`\nFAIL at step: ${err.step ?? 'workflow'}\n  ${err.message}`);
+ }
+ return ok;
+}
+
+// --challenge=<id> (default cart-total) or --challenge=all
+const arg = process.argv.find((a) => a.startsWith('--challenge='))?.split('=')[1] ?? 'cart-total';
+const selected = arg === 'all' ? Object.values(CHALLENGES) : [CHALLENGES[arg]];
+if (selected.some((c) => !c)) {
+  console.error(`Unknown challenge "${arg}". Options: ${Object.keys(CHALLENGES).join(', ')}, all`);
+  process.exit(1);
+}
+const results = [];
+try {
+  for (const c of selected) results.push(await runWorkflow(c, `smoke-${c.id}`));
 } finally {
   await new Promise((r) => app.close(r));
 }
+const ok = results.every(Boolean);
+console.log(ok ? `\nSUCCESS on ${selected.map((c) => c.id).join(', ')}.` : `\nFAILED on ${selected.filter((_, k) => !results[k]).map((c) => c.id).join(', ')}.`);
 process.exit(ok ? 0 : 1);

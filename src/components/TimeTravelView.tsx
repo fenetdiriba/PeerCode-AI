@@ -21,9 +21,10 @@ export default function TimeTravelView({ dbg }: { dbg: DebuggerState }) {
     const stats = diffStats(verification.sourceCode, verification.patchedCode);
     return (
       <DiffView
+        key={dbg.challenge?.id}
         original={verification.sourceCode}
         modified={verification.patchedCode}
-        language="typescript"
+        language={dbg.challenge?.language ?? 'typescript'}
         header={
           <>
             <span className="rounded bg-violet-500/20 px-1.5 py-0.5 font-semibold text-violet-200">Patch review · read-only</span>
@@ -60,9 +61,10 @@ export default function TimeTravelView({ dbg }: { dbg: DebuggerState }) {
 
   return (
     <DiffView
+      key={dbg.challenge?.id}
       original={baseCode}
       modified={rev.sourceCode}
-      language="typescript"
+      language={dbg.challenge?.language ?? 'typescript'}
       header={
         <>
           <span className="flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 font-semibold text-amber-200">

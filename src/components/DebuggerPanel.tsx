@@ -140,20 +140,40 @@ export default function DebuggerPanel({ dbg }: { dbg: DebuggerState }) {
 
       {challenge && (
         <div className="border-b border-brand-border px-3 py-3">
+          {dbg.challenges.length > 1 && (
+            <select
+              value={challenge.id}
+              onChange={(e) => dbg.selectChallenge(e.target.value)}
+              disabled={busy !== null}
+              className="mb-2 w-full rounded-md border border-brand-border bg-brand-bg px-2 py-1 text-xs text-neutral-200"
+              aria-label="Challenge"
+            >
+              {dbg.challenges.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.title} ({c.language === 'typescript' ? 'TypeScript' : 'JavaScript'})
+                </option>
+              ))}
+            </select>
+          )}
           <p className="text-sm font-semibold text-white">{challenge.title}</p>
           <p className="mt-0.5 text-xs leading-relaxed text-brand-text-muted">{challenge.description}</p>
           <button onClick={() => setShowTests((s) => !s)} className="mt-1.5 flex items-center gap-1 text-[11px] text-sky-300 hover:text-sky-200">
             {showTests ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-            {challenge.tests.length} predefined tests (TypeScript file)
+            {challenge.tests.length} predefined tests ({challenge.language === 'typescript' ? 'TypeScript' : 'JavaScript'} file)
           </button>
           {showTests && (
-            <ul className="mt-1.5 space-y-0.5 font-mono text-[11px] text-neutral-400">
-              {challenge.tests.map((t) => (
-                <li key={t.name}>
-                  {t.fn}({t.args.map(fmt).join(', ')}) → {fmt(t.expected)}
-                </li>
-              ))}
-            </ul>
+            <>
+              <p className="mt-1.5 text-[11px] leading-relaxed text-neutral-500">{challenge.testNotes}</p>
+              <ul className="mt-1.5 space-y-1 font-mono text-[11px] text-neutral-400">
+                {challenge.tests.map((t) => (
+                  <li key={t.name} className="break-words">
+                    <span className="text-neutral-200">{t.name}</span>
+                    <br />
+                    {t.fn}({t.args.map(fmt).join(', ')}) → {fmt(t.expected)}
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
         </div>
       )}

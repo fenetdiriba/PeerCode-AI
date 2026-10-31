@@ -33,7 +33,14 @@ Legend: `[x]` done and verified · `[~]` implemented, not fully verified · `[ ]
 - [x] Errors: Meta's HTTP status + sanitized detail (key redacted) + a fix hint per failure
 - [x] **Real run 2026-10-31**: `META_AUTH=injected NODE_USE_ENV_PROXY=1 npm run smoke:meta`: connectivity OK, regression #3, valid patch on attempt 1, verified 5/5, applied, re-test 5/5
 - [x] Real run through the UI (two browsers): model `muse-spark-1.3`, verified, conflict blocked, re-verified, applied via Y.Doc, new checkpoint 5/5
-- [ ] Optional: switch to the documented `response_format: json_schema` (constrained decoding)
+- [x] Strict `json_schema` structured output (ANALYSIS_SCHEMA), accepted by the live API; fallback to json_object on a schema 400
+- [x] Prompt lists the whole test suite with status, test notes, failing inputs and the trusted driver (fixes the false "not covered" claims)
+
+## Phase 4b: Harder challenge
+- [x] `search-race` (JavaScript): stale in-flight request after clearing the input, introduced by an extract-helper refactor at #3
+- [x] Harness: async test cases, trusted scenario driver, deferred promises, microtask flush (no timers); determinism checked (10 identical runs)
+- [x] Real Muse Spark: correct diagnosis, patch verified 8/8, applied, re-test 8/8 (smoke + two-browser UI with conflict)
+- [x] Challenge picker synced through the Y.Doc; regression search and demo reset scoped per challenge
 
 ## Phase 5: Patch verification
 - [x] find/replace edits: unique match, no overlap, order-independent

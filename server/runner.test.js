@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { CHALLENGES } from './challenges.js';
-import { compileTypeScript, createRunner, parseHarnessOutput } from './runner.js';
+import { compileSource, createRunner, parseHarnessOutput } from './runner.js';
 
 const cart = CHALLENGES['cart-total'];
 const runner = createRunner({ timeoutMs: 4000, caseTimeoutMs: 500 });
@@ -33,9 +33,9 @@ test('parseHarnessOutput keeps failure and timeout details', () => {
   assert.equal(timeout.errorKind, 'timeout');
 });
 
-test('compileTypeScript strips types and reports syntax errors', () => {
-  assert.equal(compileTypeScript('const n: number = 1;').ok, true);
-  assert.equal(compileTypeScript('function (').ok, false);
+test('compileSource strips types and reports syntax errors', () => {
+  assert.equal(compileSource('const n: number = 1;').ok, true);
+  assert.equal(compileSource('function (').ok, false);
 });
 
 test('runner: baseline passes, the regression fails with real values', async () => {
@@ -72,4 +72,19 @@ test('runner: candidate code gets no environment, require or eval', async () => 
   assert.match(req.cases[0].error, /Imports are not available/);
   const escape = await runner.runTests('const p = this.constructor.constructor("return process")(); function calculateTotal() { return 0; }', cart);
   assert.equal(escape.status, 'error');
+});
+
+test('runner: async scenario tests with deferred promises are deterministic', async () => {
+  const search = CHALLENGES['search-race'];
+  const base = await runner.runTests(search.demoSteps[0].code, search);
+  assert.equal(base.status, 'passed', JSON.stringify(base));
+  const runs = await Promise.all([1, 2, 3, 4, 5].map(() => runner.runTests(search.demoSteps[2].code, search)));
+  for (const r of runs) assert.equal(r.passed, search.tests.length - 2);
+  assert.equal(new Set(runs.map((r) => JSON.stringify(r.cases))).size, 1);
+});
+
+test('runner: a promise that never settles is a per-case timeout, not a hang', async () => {
+  const neverSettles = { ...cart, language: 'javascript', tests: [{ name: 'hangs', fn: 'calculateTotal', args: [], expected: 0 }] };
+  const r = await runner.runTests('function calculateTotal() { return new Promise(() => {}); }', neverSettles);
+  assert.deepEqual([r.status, r.errorKind], ['error', 'timeout']);
 });

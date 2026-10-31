@@ -108,12 +108,16 @@ export function createRevisionStore({ dir = null, now = () => new Date() } = {})
         return revision;
       }),
 
-    /** Remove a room's whole history (used to restart the demo scenario). */
-    clear: (roomId) =>
+    /**
+     * Remove a room's history (used to restart a demo scenario): only one challenge's
+     * checkpoints when `challengeId` is given, otherwise everything.
+     */
+    clear: (roomId, challengeId) =>
       serialize(roomId, async () => {
-        await load(roomId);
-        await persist(roomId, []);
-        rooms.set(roomId, []);
+        const list = await load(roomId);
+        const next = challengeId ? list.filter((r) => r.challengeId !== challengeId) : [];
+        await persist(roomId, next);
+        rooms.set(roomId, next);
       }),
   };
 }

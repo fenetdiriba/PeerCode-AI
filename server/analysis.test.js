@@ -48,12 +48,18 @@ test('buildDebugPrompt includes the diff, failures and current code', () => {
     challenge: cart,
     lastPassing: { sequenceNumber: 2, label: 'Add formatPrice helper', author: 'A', sourceCode: cart.demoSteps[1].code },
     firstFailing: { sequenceNumber: 3, label: 'Simplify reducer', author: 'B', sourceCode: buggy },
-    failingRun: { status: 'failed', passed: 2, total: 5, cases: [{ name: 'single item, quantity 3', status: 'failed', expected: 12, actual: 4 }], logs: [], durationMs: 1 },
+    failingRun: {
+      status: 'failed', passed: 4, total: 5, logs: [], durationMs: 1,
+      cases: cart.tests.map((t) => (t.name === 'single item, quantity 3' ? { name: t.name, status: 'failed', expected: 12, actual: 4 } : { name: t.name, status: 'passed', expected: t.expected })),
+    },
     currentCode: buggy,
   });
   assert.match(prompt, /- {5}\(sum, item\) => sum \+ item\.price \* item\.quantity,/);
   assert.match(prompt, /\+ {5}\(sum, item\) => sum \+ item\.price,/);
-  assert.match(prompt, /single item, quantity 3: expected 12, got 4/);
+  assert.match(prompt, /- single item, quantity 3\n  call: calculateTotal\(\[\{"price":4,"quantity":3\}\]\)\n  expected: 12\n  got: {6}4/);
+  // Passing tests are listed too, so the model can't claim they don't exist.
+  assert.match(prompt, /\[PASSED\] empty cart totals 0/);
+  assert.match(prompt, /How the tests work: Each test calls calculateTotal/);
   assert.match(prompt, /<<<CODE\n[\s\S]*calculateTotal[\s\S]*CODE>>>/);
 });
 
@@ -79,4 +85,18 @@ test('validateEdits', () => {
   assert.equal(validateEdits(Array(9).fill({ find: 'a', replace: 'b' })).ok, false);
   // Extra fields from the model are dropped.
   assert.deepEqual(validateEdits([{ find: 'a', replace: 'b', why: 'x' }]).edits, [{ find: 'a', replace: 'b' }]);
+});
+
+test('buildDebugPrompt includes the trusted driver and scenario inputs for async challenges', async () => {
+  const { CHALLENGES: all } = await import('./challenges.js');
+  const search = all['search-race'];
+  const prompt = buildDebugPrompt({
+    challenge: search,
+    lastPassing: { sequenceNumber: 2, label: 'a', author: 'A', sourceCode: search.demoSteps[1].code },
+    firstFailing: { sequenceNumber: 3, label: 'b', author: 'B', sourceCode: search.demoSteps[2].code },
+    failingRun: { status: 'failed', passed: 7, total: 8, logs: [], durationMs: 1, cases: [{ name: 'clearing the input discards an in-flight search', status: 'failed', expected: {}, actual: {} }] },
+    currentCode: search.demoSteps[4].code,
+  });
+  assert.match(prompt, /<<<DRIVER\n[\s\S]*async function runScenario[\s\S]*DRIVER>>>/);
+  assert.match(prompt, /call: runScenario\(\[\["type","rea"\],\["type",""\],\["resolve",0,\["React"\]\]\]\)/);
 });

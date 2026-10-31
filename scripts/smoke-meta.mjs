@@ -1,5 +1,8 @@
 // Manual end-to-end check against the REAL Meta Model API (not run by `npm test`).
 //   npm run smoke:meta          (reads MODEL_API_KEY from the environment or .env)
+//   META_AUTH=injected NODE_USE_ENV_PROXY=1 npm run smoke:meta
+//                               (no key in this process: an egress proxy adds it, e.g. a
+//                                Claude Code network secret for api.meta.ai)
 //
 // 1. Connectivity: one minimal chat-completions request, to separate API problems
 //    (key, model, endpoint, network) from pipeline problems.
@@ -20,13 +23,14 @@ const key = clean(process.env.MODEL_API_KEY);
 const baseUrl = clean(process.env.META_BASE_URL) ?? DEFAULT_BASE_URL;
 const modelName = clean(process.env.META_MODEL) ?? DEFAULT_MODEL;
 const jsonMode = process.env.META_JSON_MODE !== 'off';
+const injected = process.env.META_AUTH === 'injected';
 
 console.log(`Endpoint:  ${baseUrl.replace(/\/+$/, '')}/chat/completions`);
 console.log(`Model:     ${modelName}`);
 console.log(`JSON mode: ${jsonMode ? 'on (response_format: json_object)' : 'off'}`);
-console.log(`API key:   ${key ? `set (${key.length} chars, not shown)` : 'NOT SET'}`);
-if (!key) {
-  console.error('\nFAIL: MODEL_API_KEY is not set. Put it in .env (gitignored) or export it in your shell.');
+console.log(`Auth:      ${injected ? 'injected by the egress proxy (no key in this process)' : key ? `MODEL_API_KEY set (${key.length} chars, not shown)` : 'MODEL_API_KEY NOT SET'}`);
+if (!injected && !key) {
+  console.error('\nFAIL: MODEL_API_KEY is not set. Put it in .env (gitignored) or export it in your shell, or set META_AUTH=injected if a proxy adds the key.');
   process.exit(1);
 }
 
@@ -41,6 +45,7 @@ function fixFor(code, upstreamStatus, detail) {
           ? 'The connection went through the proxy in HTTPS_PROXY, which did not let it through. The proxy is probably blocking api.meta.ai: allow that host, or run this on a machine without the proxy.'
           : 'The server could not open a connection to the API host. Check your network, VPN or proxy.';
   }
+  if (code === 'auth' && process.env.META_AUTH === 'injected') return 'The key injected by the proxy was rejected. Check the network secret for api.meta.ai: Bearer type, the full key (starts with LLM_), still active in the Model API dashboard.';
   if (code === 'auth') return 'The key was rejected. Check that MODEL_API_KEY is the full key with no quotes or spaces, is active, and is for the Meta Model API. Create a new key if unsure.';
   if (code === 'rate-limit') return 'Rate limited. Wait a minute, then retry. If it persists, check your hackathon quota.';
   if (code === 'timeout') return 'No answer in time. Retry; if it keeps happening, the API may be degraded.';
@@ -61,7 +66,7 @@ function reportFailure(step, { code, upstreamStatus, detail, message }) {
   console.error(`  what to fix:      ${fixFor(code, upstreamStatus, detail ?? '')}`);
 }
 
-const model = createMetaClient({ apiKey: key, baseUrl, model: modelName, jsonMode });
+const model = createMetaClient({ apiKey: key, authMode: injected ? 'injected' : 'key', baseUrl, model: modelName, jsonMode });
 
 // ---- Step 1: connectivity ---------------------------------------------------------------
 console.log('\n[1/2] Connectivity: minimal request to the real Meta API...');

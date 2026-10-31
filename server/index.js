@@ -14,6 +14,8 @@
 //   META_BASE_URL           default https://api.meta.ai/v1
 //   META_MODEL              default muse-spark-1.3
 //   META_JSON_MODE          "off" to stop sending response_format (if the API rejects it).
+//   META_AUTH               "injected" when an egress proxy adds the Authorization header
+//                           (e.g. a Claude Code network secret); MODEL_API_KEY is then not needed.
 //   REVISIONS_DIR           where checkpoints are stored (one JSON file per room). Default ./data/revisions.
 //   TEST_TIMEOUT_MS         wall-clock limit per test run. Default 8000.
 import 'dotenv/config';
@@ -35,6 +37,7 @@ const metaKey = clean(process.env.MODEL_API_KEY);
 const revisionsDir = process.env.REVISIONS_DIR || 'data/revisions';
 const model = createMetaClient({
   apiKey: metaKey,
+  authMode: process.env.META_AUTH === 'injected' ? 'injected' : 'key',
   baseUrl: clean(process.env.META_BASE_URL) ?? DEFAULT_BASE_URL,
   model: clean(process.env.META_MODEL) ?? DEFAULT_MODEL,
   jsonMode: process.env.META_JSON_MODE !== 'off',
@@ -60,7 +63,7 @@ server.listen(port, () => {
   console.log(`PeerCode AI server listening on port ${port}`);
   console.log(allowedOrigins.length ? `Allowed origins: ${allowedOrigins.join(', ')}` : 'Allowed origins: any (set ALLOWED_ORIGINS in production)');
   console.log(apiKey ? 'AI hints: enabled' : 'AI hints: disabled (set GEMINI_API_KEY to enable)');
-  console.log(metaKey ? `Debugger AI: ${model.model} via ${clean(process.env.META_BASE_URL) ?? DEFAULT_BASE_URL}` : 'Debugger AI: unavailable (set MODEL_API_KEY to enable)');
+  console.log(model.available ? `Debugger AI (${model.authMode === 'injected' ? 'key injected by proxy' : 'MODEL_API_KEY'}): ${model.model} via ${clean(process.env.META_BASE_URL) ?? DEFAULT_BASE_URL}` : 'Debugger AI: unavailable (set MODEL_API_KEY to enable)');
   console.log(`Checkpoints stored in ${revisionsDir}`);
 });
 

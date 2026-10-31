@@ -27,11 +27,13 @@ Legend: `[x]` done and verified · `[~]` implemented, not fully verified · `[ ]
 - [x] Benchmark: 64/64 correct on generated histories (docs/BENCHMARK.md)
 
 ## Phase 4: Meta Muse Spark
-- [!] **Verify the wire format against https://dev.meta.ai/docs.** The docs and API hosts were blocked (403) from the build container. Next step: `MODEL_API_KEY=... npm run smoke:meta` on a machine with access, then fix `buildRequest` / `readText` in server/meta.js if needed.
-- [~] `server/meta.js` client (key server-side only, configurable base URL/model/JSON mode). Unit-tested with a mocked transport only.
+- [x] Wire format checked against https://dev.meta.ai/docs (auth, chat completions, errors) and the live API
+- [x] `server/meta.js`: key mode (`MODEL_API_KEY`) and injected mode (`META_AUTH=injected`, key added by an egress proxy / network secret)
 - [x] Prompt + strict schema validation + one retry with the validation error
-- [x] Errors: missing key (503), 401/403, 429, 5xx, 404/400, network, timeout, invalid shape, invalid output
-- [x] `npm run smoke:meta` real-API script (fails cleanly without a key; not yet run with one)
+- [x] Errors: Meta's HTTP status + sanitized detail (key redacted) + a fix hint per failure
+- [x] **Real run 2026-10-31**: `META_AUTH=injected NODE_USE_ENV_PROXY=1 npm run smoke:meta`: connectivity OK, regression #3, valid patch on attempt 1, verified 5/5, applied, re-test 5/5
+- [x] Real run through the UI (two browsers): model `muse-spark-1.3`, verified, conflict blocked, re-verified, applied via Y.Doc, new checkpoint 5/5
+- [ ] Optional: switch to the documented `response_format: json_schema` (constrained decoding)
 
 ## Phase 5: Patch verification
 - [x] find/replace edits: unique match, no overlap, order-independent
@@ -44,7 +46,7 @@ Legend: `[x]` done and verified · `[~]` implemented, not fully verified · `[ ]
 - [x] One-click demo scenario (real checkpoints through the API; results not scripted)
 - [x] README: status, setup, demo script, architecture, trade-offs, safety, limitations
 - [x] Measured results with methodology (docs/BENCHMARK.md)
-- [ ] Run the demo with the real Meta API and record the response (blocked on the item above)
+- [x] Run the demo with the real Meta API (see Phase 4)
 - [ ] Redeploy server + frontend (Railway volume for REVISIONS_DIR; MODEL_API_KEY)
 - [ ] Demo video / screenshots for the submission
 

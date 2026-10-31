@@ -91,3 +91,20 @@ test('sanitize redacts the key and bearer tokens, and non-JSON error bodies are 
   const html = createMetaClient({ apiKey: KEY, fetchImpl: reply(502, '<html>Bad Gateway</html>') });
   await assert.rejects(html.complete({ system: 's', user: 'u' }), (e) => e.upstreamStatus === 502 && /Bad Gateway/.test(e.detail));
 });
+
+test('injected auth mode sends no Authorization header and needs no key', async () => {
+  let headers;
+  const client = createMetaClient({
+    apiKey: undefined,
+    authMode: 'injected',
+    fetchImpl: async (_url, init) => {
+      headers = init.headers;
+      return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: 'x' } }] }) };
+    },
+  });
+  assert.equal(client.available, true);
+  assert.equal(await client.complete({ system: 's', user: 'u' }), 'x');
+  assert.equal('Authorization' in headers, false);
+  const rejected = createMetaClient({ apiKey: undefined, authMode: 'injected', fetchImpl: reply(401, { error: { message: 'bad key' } }) });
+  await assert.rejects(rejected.complete({ system: 's', user: 'u' }), (e) => e.code === 'auth' && /network secret/.test(e.message));
+});

@@ -1,12 +1,17 @@
 // Meta Model API client (Muse Spark). Runs on the server only; the key never reaches the browser.
 //
-// UNVERIFIED WIRE FORMAT: the official docs (https://dev.meta.ai/docs/overview) could not be
-// reached from the environment this was written in. The request below uses the common
-// chat-completions shape (POST {base}/chat/completions, Bearer auth, `messages`), and the
-// response reader accepts both the OpenAI-style `choices[0].message.content` and the Llama
-// API-style `completion_message.content.text`. Check it against the docs and run
-// `npm run smoke:meta` with a real key before relying on it. Everything that touches the
-// wire format is in `buildRequest` and `readText`, so a correction stays local.
+// AUTH MODES: by default the client sends `Authorization: Bearer $MODEL_API_KEY`. With
+// authMode 'injected' (env META_AUTH=injected) it sends no Authorization header at all: an
+// egress proxy adds the key (e.g. a Claude Code network secret for api.meta.ai), so the key
+// never exists in this process.
+//
+// WIRE FORMAT: checked on 2026-10-31 against https://dev.meta.ai/docs (authentication,
+// chat completions, error handling) and the live API: POST {base}/chat/completions with
+// Bearer auth and an OpenAI-style body; the reply text is at choices[0].message.content;
+// errors are { error: { message, type, param, code } }, and unknown paths return 404 with an
+// empty body. `response_format: { type: 'json_object' }` is accepted. The docs' documented
+// structured-output form is `type: 'json_schema'` (constrained decoding), not used yet.
+// readText also accepts other common shapes defensively.
 
 export const DEFAULT_BASE_URL = 'https://api.meta.ai/v1';
 export const DEFAULT_MODEL = 'muse-spark-1.3';
@@ -73,25 +78,27 @@ export function classifyHttpError(status, body, secret, rawText = '') {
 
 /**
  * @param {{
- *   apiKey: string | undefined, baseUrl?: string, model?: string, timeoutMs?: number,
+ *   apiKey: string | undefined, authMode?: 'key' | 'injected', baseUrl?: string, model?: string, timeoutMs?: number,
  *   jsonMode?: boolean, fetchImpl?: typeof fetch,
  * }} options
- * @returns {{ model: string, available: boolean, complete: (p: { system: string, user: string }) => Promise<string> }}
+ * @returns {{ model: string, available: boolean, authMode: 'key' | 'injected', complete: (p: { system: string, user: string }) => Promise<string> }}
  */
-export function createMetaClient({ apiKey, baseUrl = DEFAULT_BASE_URL, model = DEFAULT_MODEL, timeoutMs = 60_000, jsonMode = true, fetchImpl = fetch }) {
+export function createMetaClient({ apiKey, authMode = 'key', baseUrl = DEFAULT_BASE_URL, model = DEFAULT_MODEL, timeoutMs = 60_000, jsonMode = true, fetchImpl = fetch }) {
+  const injected = authMode === 'injected';
   const url = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
   return {
     model,
-    available: Boolean(apiKey),
+    available: injected || Boolean(apiKey),
+    authMode: injected ? 'injected' : 'key',
     async complete({ system, user }) {
-      if (!apiKey) throw new ModelError('missing-key', 'Meta AI analysis is unavailable: MODEL_API_KEY is not set on the server.', 503);
+      if (!injected && !apiKey) throw new ModelError('missing-key', 'Meta AI analysis is unavailable: MODEL_API_KEY is not set on the server.', 503);
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       let res;
       try {
         res = await fetchImpl(url, {
           method: 'POST',
-          headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+          headers: { ...(injected ? {} : { Authorization: `Bearer ${apiKey}` }), 'Content-Type': 'application/json', Accept: 'application/json' },
           body: JSON.stringify(buildRequest({ model, system, user, jsonMode })),
           signal: controller.signal,
         });
@@ -115,7 +122,13 @@ export function createMetaClient({ apiKey, baseUrl = DEFAULT_BASE_URL, model = D
       } catch {
         // Not JSON; handled below.
       }
-      if (!res.ok) throw classifyHttpError(res.status, body, apiKey, raw);
+      if (!res.ok) {
+        const err = classifyHttpError(res.status, body, apiKey, raw);
+        if (injected && err.code === 'auth') {
+          err.message = `The Meta API rejected the request (${res.status}). The key is injected by the egress proxy (META_AUTH=injected): check the network secret for api.meta.ai.`;
+        }
+        throw err;
+      }
       const text = readText(body);
       if (text == null) {
         const keys = body && typeof body === 'object' ? Object.keys(body).join(', ') : 'non-JSON body';

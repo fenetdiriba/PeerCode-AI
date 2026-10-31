@@ -18,7 +18,7 @@ Edit together → Checkpoint → Locate regression → Explain (Muse Spark) → 
 | Persistent checkpoints, time travel, diffs | Working. Survives page refresh and server restart (JSON files). |
 | Test execution + regression localization | Working. 64/64 correct on a generated benchmark ([docs/BENCHMARK.md](docs/BENCHMARK.md)). |
 | Patch validation, isolated verification, conflict-safe apply | Working. Covered by unit, HTTP and browser tests. |
-| **Meta Muse Spark call** | **Implemented but not yet verified against the real API.** The docs host and API host were blocked from the environment this was built in, so the request format in [`server/meta.js`](server/meta.js) follows the common chat-completions shape and is marked unverified. Run `npm run smoke:meta` with a real key to confirm (see below). The app never fakes AI output: without a key, the AI step says it's unavailable. |
+| Meta Muse Spark call | **Working with the real API.** On 2026-10-31, `npm run smoke:meta` and the two-browser UI flow both ran against `muse-spark-1.3`: regression found at #3, Muse Spark returned a valid patch in about 5 s, 5/5 tests passed on the patched copy, the patch was applied and the re-test passed 5/5. The request format was checked against Meta's docs. |
 | Live site ([peer-code-ai.vercel.app](https://peer-code-ai.vercel.app)) | Has the collaborative editor. The debugger needs a redeploy of both server and frontend. |
 
 ## Quick start
@@ -51,6 +51,10 @@ Step 1 sends one minimal request to `https://api.meta.ai/v1/chat/completions` (`
 
 - `401`/`403`: bad or inactive key. `404`: model id or endpoint wrong (`META_MODEL`, `META_BASE_URL`). `400` mentioning `response_format`: re-run with `META_JSON_MODE=off`. `invalid-response`: the reply shape differs from what `readText()` in `server/meta.js` expects.
 - Behind an HTTP proxy (corporate network, some cloud sandboxes), Node's `fetch` ignores `HTTPS_PROXY` unless you run with `NODE_USE_ENV_PROXY=1` (Node ≥ 22.21).
+- If a proxy adds the key for you (e.g. a Claude Code **network secret** for `api.meta.ai`), run with `META_AUTH=injected`: the app then sends no `Authorization` header and needs no `MODEL_API_KEY`:
+  ```bash
+  META_AUTH=injected NODE_USE_ENV_PROXY=1 npm run smoke:meta
+  ```
 
 ## Architecture
 
@@ -101,6 +105,7 @@ Server (`.env` locally, or the host's variables):
 | `MODEL_API_KEY` | Meta Model API key. Enables Muse Spark analysis. Server-only; never put it in a `VITE_` variable. |
 | `META_BASE_URL` / `META_MODEL` | Default `https://api.meta.ai/v1` / `muse-spark-1.3`. |
 | `META_JSON_MODE` | `off` stops sending `response_format` if the API rejects it. |
+| `META_AUTH` | `injected` when an egress proxy adds the Authorization header (no key in the app). |
 | `REVISIONS_DIR` | Checkpoint storage, default `./data/revisions`. Use a persistent volume in production (Railway's disk is ephemeral). |
 | `TEST_TIMEOUT_MS` | Wall-clock limit per test run, default 8000. |
 | `ALLOWED_ORIGINS`, `MAX_CONNECTIONS_PER_IP`, `GEMINI_API_KEY`, … | Unchanged, see `server/index.js`. |
@@ -117,7 +122,7 @@ npm run smoke:meta   # manual: the real Meta API, end to end
 The automated pipeline test (`server/debugger.test.js`) uses a **scripted model**. It's labelled as a mock and never stands in for the real demo.
 
 ## Limitations and future work
-- The Meta request format is unverified (see Status). This is the first thing to confirm with a key.
+- Structured output uses `json_object` plus our own validation and one retry. Meta's documented `json_schema` mode (constrained decoding) would make invalid replies impossible. Not switched yet.
 - One language (TypeScript) and one challenge. Tests are data-driven calls of top-level functions with JSON-comparable results.
 - Execution is constrained, not sandboxed (see above). Next: a container or microVM runner.
 - Regression reports and AI analyses are per-viewer (not synced). Checkpoints and code are shared.

@@ -17,7 +17,7 @@
     "benchmark": "node scripts/benchmark.mjs"
   },
   "engines": {
-    "node": ">=20"
+    "node": "22.x"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

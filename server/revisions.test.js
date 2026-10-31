@@ -73,3 +73,13 @@ test('validateRevisionInput', () => {
   assert.equal(validateRevisionInput({ sourceCode: 'x'.repeat(50_001), challengeId: 'c' }).ok, false);
   assert.equal(validateRevisionInput({ sourceCode: 'x', challengeId: 'c', label: 'y'.repeat(500) }).value.label.length, 120);
 });
+
+test('room cap: new rooms are refused once the limit is reached; existing rooms keep working', async () => {
+  const dir = await tmpDir();
+  const store = createRevisionStore({ dir, maxRooms: 2 });
+  await store.create('r1', { sourceCode: 'a', challengeId: 'c' });
+  await store.create('r2', { sourceCode: 'a', challengeId: 'c' });
+  await assert.rejects(store.create('r3', { sourceCode: 'a', challengeId: 'c' }), (e) => e.status === 507);
+  assert.equal((await store.create('r1', { sourceCode: 'b', challengeId: 'c' })).sequenceNumber, 2);
+  await fs.rm(dir, { recursive: true, force: true });
+});

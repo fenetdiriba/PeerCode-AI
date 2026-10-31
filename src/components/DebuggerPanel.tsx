@@ -124,6 +124,7 @@ export default function DebuggerPanel({ dbg }: { dbg: DebuggerState }) {
       {dbg.serverError && (
         <div className="m-3 rounded-md border border-rose-500/40 bg-rose-500/10 p-2 text-xs text-rose-200">Debugger server unavailable: {dbg.serverError}</div>
       )}
+      {dbg.needsAccessCode && <AccessCodeForm onSave={dbg.saveAccessCode} />}
       {dbg.error && (
         <div className="m-3 flex gap-2 rounded-md border border-rose-500/40 bg-rose-500/10 p-2 text-xs text-rose-200" role="alert">
           <AlertTriangle className="h-4 w-4 shrink-0" />
@@ -301,7 +302,12 @@ export default function DebuggerPanel({ dbg }: { dbg: DebuggerState }) {
         {blocked && verification.status === 'done' && (
           <div className={`mt-2 rounded border p-2 text-[11px] ${blocked.reason === 'conflict' ? 'border-amber-500/40 bg-amber-500/10 text-amber-200' : 'border-brand-border text-brand-text-muted'}`}>
             {blocked.message}
-            {blocked.reason === 'conflict' && (
+            {blocked.reason === 'conflict' && dbg.server?.executionMode === 'restricted' && (
+              <p className="mt-1.5">
+                This public demo only runs the built-in scenario code, so it can't re-verify edited code. Undo the edits (Ctrl/Cmd+Z) to re-enable Apply, or run PeerCode locally to verify your own changes.
+              </p>
+            )}
+            {blocked.reason === 'conflict' && dbg.server?.executionMode === 'local' && (
               <div className="mt-1.5">
                 <Button onClick={dbg.reverifyLive} tone="neutral" icon={<RefreshCw className="h-3.5 w-3.5" />}>
                   Re-verify against live code
@@ -313,6 +319,35 @@ export default function DebuggerPanel({ dbg }: { dbg: DebuggerState }) {
         <p className="mt-2 text-[10px] text-neutral-500">Applying edits the shared document for everyone in the room and saves a new checkpoint. Nothing is applied automatically.</p>
       </Section>
     </div>
+  );
+}
+
+function AccessCodeForm({ onSave }: { onSave: (code: string) => void }) {
+  const [code, setCode] = useState('');
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (code.trim()) onSave(code);
+      }}
+      className="m-3 space-y-1.5 rounded-md border border-sky-500/40 bg-sky-500/10 p-2 text-xs text-sky-100"
+    >
+      <p>This demo server needs an access code for test runs and AI analysis.</p>
+      <div className="flex gap-1.5">
+        <input
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          type="password"
+          autoComplete="off"
+          placeholder="Access code"
+          aria-label="Access code"
+          className="min-w-0 flex-1 rounded border border-brand-border bg-brand-bg px-2 py-1 text-neutral-100"
+        />
+        <button type="submit" className="rounded bg-sky-600 px-2 py-1 font-semibold text-white hover:bg-sky-500">
+          Save
+        </button>
+      </div>
+    </form>
   );
 }
 

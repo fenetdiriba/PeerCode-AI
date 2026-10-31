@@ -6,16 +6,28 @@
 //   POST   /api/rooms/:room/revisions/:id/test      run the challenge tests on one revision
 //   POST   /api/rooms/:room/regression              { challengeId?, baselineId?, strategy? }
 //   POST   /api/rooms/:room/analyze                 { lastPassingId, firstFailingId, currentCode }
-//   POST   /api/verify                              { challengeId, sourceCode, edits }
+//   POST   /api/verify                              { analysisId } (any mode) or
+//                                                   { challengeId, sourceCode, edits } (local mode only)
+//
+// Security: what may execute is decided by execution-policy.js (restricted by default: only
+// server-owned code and server-produced patches). Execution is also refused entirely when the
+// startup isolation self-check failed. If DEBUGGER_ACCESS_CODE is set, every write, test run
+// and AI call needs the X-PeerCode-Access header. AI calls have a per-IP limit and a global
+// daily cap to protect API credits.
 import { ANALYSIS_SCHEMA, buildDebugPrompt, parseAnalysis, SYSTEM_PROMPT } from './analysis.js';
 import { CHALLENGES, publicChallenge } from './challenges.js';
+import { timingSafeEqual } from 'node:crypto';
+import { createExecutionPolicy, screenEdits } from './execution-policy.js';
 import { createRateLimiter, HttpError, json, readJson } from './http.js';
 import { ModelError } from './meta.js';
 import { applyEdits, validateEdits } from './patches.js';
 import { locateRegression } from './regression.js';
 import { hashCode, MAX_SOURCE_CHARS, ROOM_PATTERN, validateRevisionInput } from './revisions.js';
+import { randomUUID } from 'node:crypto';
 
 const MAX_CACHED_RUNS = 500;
+const MAX_ANALYSES = 500;
+const ANALYSIS_TTL_MS = 30 * 60_000;
 
 /**
  * @param {{
@@ -25,11 +37,67 @@ const MAX_CACHED_RUNS = 500;
  *   challenges?: Record<string, import('./challenges.js').Challenge>,
  *   testRunsPerMinute?: number,
  *   analysesPer10Min?: number,
+ *   aiDailyLimit?: number,
+ *   executionMode?: 'restricted' | 'local',
+ *   isolation?: { ok: boolean, checks?: Record<string, boolean>, error?: string } | null,
+ *   accessCode?: string | null,
+ *   persistence?: string,
+ *   now?: () => number,
  * }} deps
  */
-export function createDebugger({ store, runner, model, challenges = CHALLENGES, testRunsPerMinute = 60, analysesPer10Min = 20 }) {
+export function createDebugger({
+  store,
+  runner,
+  model,
+  challenges = CHALLENGES,
+  testRunsPerMinute = 60,
+  analysesPer10Min = 20,
+  aiDailyLimit = 200,
+  executionMode = 'restricted',
+  isolation = null,
+  accessCode = null,
+  persistence = 'memory',
+  now = () => Date.now(),
+}) {
   const testLimited = createRateLimiter({ max: testRunsPerMinute, windowMs: 60_000 });
   const aiLimited = createRateLimiter({ max: analysesPer10Min, windowMs: 10 * 60_000 });
+  const policy = createExecutionPolicy({ mode: executionMode, challenges });
+  // isolation null = not checked (tests); { ok: false } disables execution entirely.
+  const executionAvailable = isolation === null || isolation.ok;
+
+  /** Model calls today (UTC), across all clients: protects the API budget. */
+  const daily = { day: '', count: 0 };
+  const takeDailyAiCall = () => {
+    const day = new Date(now()).toISOString().slice(0, 10);
+    if (daily.day !== day) Object.assign(daily, { day, count: 0 });
+    if (daily.count >= aiDailyLimit) throw new HttpError(429, 'The demo has used its AI budget for today. Try again tomorrow, or run PeerCode locally with your own key.', { code: 'ai-daily-limit' });
+    daily.count++;
+  };
+
+  /** Server-issued analyses: verify runs exactly these edits on exactly this code. */
+  /** @type {Map<string, { challengeId: string, sourceCode: string, edits: { find: string, replace: string }[], createdAt: number }>} */
+  const analyses = new Map();
+  const rememberAnalysis = (record) => {
+    const id = randomUUID();
+    analyses.set(id, record);
+    for (const [k, v] of analyses) if (analyses.size > MAX_ANALYSES || now() - v.createdAt > ANALYSIS_TTL_MS) analyses.delete(k);
+    return id;
+  };
+
+  const checkAccess = (provided) => {
+    if (!accessCode) return;
+    const a = Buffer.from(String(provided ?? ''));
+    const b = Buffer.from(accessCode);
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
+      throw new HttpError(401, 'This server needs a demo access code.', { code: 'access-code-required' });
+    }
+  };
+
+  const assertExecution = () => {
+    if (!executionAvailable) {
+      throw new HttpError(503, 'Test execution is disabled on this server: its isolation self-check failed at startup (see /health).', { code: 'execution-unavailable' });
+    }
+  };
 
   // Tests are deterministic fixtures, so a result is a function of (challenge, exact code).
   /** @type {Map<string, Promise<import('./runner.js').TestRun>>} */
@@ -66,23 +134,50 @@ export function createDebugger({ store, runner, model, challenges = CHALLENGES, 
     if (testLimited(ip)) throw new HttpError(429, 'Too many test runs. Wait a minute and try again.');
   };
 
-  /** @param {{ method: string, parts: string[], body: () => Promise<any>, ip: string }} r */
-  async function route({ method, parts, body, ip }) {
+  /** @param {{ method: string, parts: string[], body: () => Promise<any>, ip: string, access: string | undefined }} r */
+  async function route({ method, parts, body, ip, access }) {
     // parts: path split after "/api"
     if (parts[0] === 'challenges' && parts.length === 1 && method === 'GET') {
-      return { challenges: Object.values(challenges).map(publicChallenge), ai: { available: model.available, model: model.model } };
+      return {
+        challenges: Object.values(challenges).map(publicChallenge),
+        ai: { available: model.available, model: model.model },
+        execution: { mode: policy.mode, available: executionAvailable },
+        access: { required: Boolean(accessCode) },
+      };
     }
+    // Everything except reading is gated by the access code (when one is configured).
+    if (method !== 'GET') checkAccess(access);
 
     if (parts[0] === 'verify' && parts.length === 1 && method === 'POST') {
-      const { challengeId, sourceCode, edits } = await body();
-      const challenge = getChallenge(challengeId);
-      if (typeof sourceCode !== 'string' || sourceCode.length > MAX_SOURCE_CHARS) throw new HttpError(400, 'Invalid source code.');
-      const valid = validateEdits(edits);
-      if (!valid.ok) throw new HttpError(400, valid.error);
-      const applied = applyEdits(sourceCode, valid.edits);
+      assertExecution();
+      const req = await body();
+      let challenge;
+      let sourceCode;
+      let edits;
+      if (req.analysisId !== undefined) {
+        const record = typeof req.analysisId === 'string' ? analyses.get(req.analysisId) : undefined;
+        if (!record) throw new HttpError(404, 'That analysis has expired. Analyze again.', { code: 'analysis-not-found' });
+        ({ sourceCode, edits } = record);
+        challenge = getChallenge(record.challengeId);
+      } else {
+        // Client-supplied code and edits: arbitrary code, so local mode only.
+        if (policy.mode !== 'local') {
+          throw new HttpError(403, 'This public server only verifies patches it generated for the built-in scenario. Analyze the scenario code (undo any edits first), or run PeerCode locally.', { code: 'execution-restricted' });
+        }
+        challenge = getChallenge(req.challengeId);
+        sourceCode = req.sourceCode;
+        if (typeof sourceCode !== 'string' || sourceCode.length > MAX_SOURCE_CHARS) throw new HttpError(400, 'Invalid source code.');
+        const valid = validateEdits(req.edits);
+        if (!valid.ok) throw new HttpError(400, valid.error);
+        edits = valid.edits;
+      }
+      const applied = applyEdits(sourceCode, edits);
       if (!applied.ok) throw new HttpError(409, applied.error, { code: 'patch-does-not-apply' });
       checkTestLimit(ip);
       const run = await testCode(challenge, applied.code);
+      // A server-generated patch of trusted code that passed may run again later (e.g. the
+      // checkpoint created when it's applied).
+      if (run.status === 'passed' && req.analysisId !== undefined) policy.trust(challenge.id, applied.code);
       return { sourceHash: hashCode(sourceCode), patchedCode: applied.code, patchedHash: hashCode(applied.code), run };
     }
 
@@ -113,6 +208,8 @@ export function createDebugger({ store, runner, model, challenges = CHALLENGES, 
 
     if (rest[0] === 'revisions' && rest.length === 3 && rest[2] === 'test' && method === 'POST') {
       const rev = await getRevision(roomId, rest[1]);
+      assertExecution();
+      policy.assertExecutable(rev.challengeId, rev.sourceCode, `Checkpoint #${rev.sequenceNumber}`);
       checkTestLimit(ip);
       return { revisionId: rev.id, run: await testCode(getChallenge(rev.challengeId), rev.sourceCode) };
     }
@@ -127,6 +224,9 @@ export function createDebugger({ store, runner, model, challenges = CHALLENGES, 
       const start = baselineId ? revisions.findIndex((r) => r.id === baselineId) : 0;
       const ids = new Set(revisions.slice(start).map((r) => r.challengeId));
       if (ids.size > 1) throw new HttpError(400, 'These checkpoints belong to different challenges; pick a baseline from the current one.');
+      assertExecution();
+      // All or nothing: a search over partly-unrunnable history would give a wrong answer.
+      for (const r of revisions.slice(Math.max(start, 0))) policy.assertExecutable(r.challengeId, r.sourceCode, `Checkpoint #${r.sequenceNumber}`);
       checkTestLimit(ip);
       const started = performance.now();
       let executedRuns = 0; // fresh test-process executions; the rest came from the result cache
@@ -141,8 +241,15 @@ export function createDebugger({ store, runner, model, challenges = CHALLENGES, 
       const firstFailing = await getRevision(roomId, firstFailingId);
       if (lastPassing.sequenceNumber >= firstFailing.sequenceNumber) throw new HttpError(400, 'The passing checkpoint must come before the failing one.');
       const challenge = getChallenge(firstFailing.challengeId);
+      assertExecution();
+      // Restricted mode: the prompt contains only server-owned code, so visitors can't steer
+      // the model (and the code that runs is never theirs).
+      policy.assertExecutable(challenge.id, lastPassing.sourceCode, `Checkpoint #${lastPassing.sequenceNumber}`);
+      policy.assertExecutable(challenge.id, firstFailing.sourceCode, `Checkpoint #${firstFailing.sequenceNumber}`);
+      policy.assertExecutable(challenge.id, currentCode, 'The live code');
       if (!model.available) throw new HttpError(503, 'Meta AI analysis is unavailable: MODEL_API_KEY is not set on the server.', { code: 'ai-unavailable' });
       if (aiLimited(ip)) throw new HttpError(429, 'Too many AI requests. Try again in a few minutes.');
+      takeDailyAiCall();
 
       const [passRun, failingRun] = await Promise.all([testCode(challenge, lastPassing.sourceCode), testCode(challenge, firstFailing.sourceCode)]);
       if (passRun.status !== 'passed' || failingRun.status === 'passed') {
@@ -155,6 +262,7 @@ export function createDebugger({ store, runner, model, challenges = CHALLENGES, 
       const usage = { promptTokens: 0, completionTokens: 0, reasoningTokens: 0, totalTokens: 0 };
       const requestIds = [];
       for (let attempt = 1; attempt <= 2; attempt++) {
+        if (attempt > 1) takeDailyAiCall();
         const prompt = attempt === 1 ? user : `${user}\n\nYour previous answer was rejected: ${lastError}\nReply again with only the JSON object.`;
         let result;
         try {
@@ -168,7 +276,11 @@ export function createDebugger({ store, runner, model, challenges = CHALLENGES, 
         }
         if (result.usage) for (const k of Object.keys(usage)) usage[k] += result.usage[k];
         if (result.id) requestIds.push(result.id);
-        const parsed = parseAnalysis(result.text, currentCode);
+        let parsed = parseAnalysis(result.text, currentCode);
+        if (parsed.ok && policy.mode !== 'local') {
+          const screened = screenEdits(parsed.analysis.edits);
+          if (!screened.ok) parsed = { ok: false, error: `The patch was refused: ${screened.error}.` };
+        }
         if (parsed.ok) {
           return {
             analysis: parsed.analysis,
@@ -177,6 +289,7 @@ export function createDebugger({ store, runner, model, challenges = CHALLENGES, 
             model: model.model,
             attempts: attempt,
             latencyMs: Math.round(performance.now() - started),
+            analysisId: rememberAnalysis({ challengeId: challenge.id, sourceCode: currentCode, edits: parsed.analysis.edits, createdAt: now() }),
             responseFormat: result.responseFormat,
             schemaFallback: Boolean(result.schemaFallback),
             usage,
@@ -200,7 +313,8 @@ export function createDebugger({ store, runner, model, challenges = CHALLENGES, 
   async function handle(req, res, path, ip) {
     const parts = path.slice('/api/'.length).split('/').filter(Boolean);
     try {
-      const result = await route({ method: req.method ?? 'GET', parts, body: () => readJson(req), ip });
+      const access = req.headers['x-peercode-access'];
+      const result = await route({ method: req.method ?? 'GET', parts, body: () => readJson(req), ip, access: Array.isArray(access) ? access[0] : access });
       json(res, 200, result);
     } catch (err) {
       if (err instanceof HttpError) return json(res, err.status, { error: err.message, ...err.extra });
@@ -209,5 +323,16 @@ export function createDebugger({ store, runner, model, challenges = CHALLENGES, 
     }
   }
 
-  return { handle };
+  /** For /health: how this server executes code (no secrets). */
+  const status = () => ({
+    executionMode: policy.mode,
+    executionAvailable,
+    isolation: isolation ?? 'not checked',
+    networkRestricted: false,
+    persistence,
+    ai: model.available,
+    accessCodeRequired: Boolean(accessCode),
+  });
+
+  return { handle, status };
 }

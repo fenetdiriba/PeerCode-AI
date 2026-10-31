@@ -100,6 +100,7 @@ export interface AnalyzeResponse {
   model: string;
   attempts: number;
   latencyMs: number;
+  analysisId: string;
   responseFormat: 'json_schema' | 'json_object' | 'none';
   schemaFallback: boolean;
   usage: { promptTokens: number; completionTokens: number; reasoningTokens: number; totalTokens: number };
@@ -120,12 +121,35 @@ export class ApiError extends Error {
   }
 }
 
+const ACCESS_KEY = 'peercode.accessCode';
+
+/** Optional demo access code (when the server requires one), remembered in this browser. */
+export const accessCode = {
+  get: (): string => {
+    try {
+      return localStorage.getItem(ACCESS_KEY) ?? '';
+    } catch {
+      return '';
+    }
+  },
+  set: (code: string) => {
+    try {
+      localStorage.setItem(ACCESS_KEY, code.trim());
+    } catch {
+      // Private mode etc.: the code just won't be remembered.
+    }
+  },
+};
+
 async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`${DEBUGGER_API_URL}${path}`, {
       method,
-      headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+      headers: {
+        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+        ...(accessCode.get() ? { 'X-PeerCode-Access': accessCode.get() } : {}),
+      },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
@@ -137,7 +161,13 @@ async function api<T>(method: string, path: string, body?: unknown): Promise<T> 
 }
 
 export const debuggerApi = {
-  challenges: () => api<{ challenges: Challenge[]; ai: { available: boolean; model: string } }>('GET', '/challenges'),
+  challenges: () =>
+    api<{
+      challenges: Challenge[];
+      ai: { available: boolean; model: string };
+      execution: { mode: 'restricted' | 'local'; available: boolean };
+      access: { required: boolean };
+    }>('GET', '/challenges'),
   listRevisions: (roomId: string) => api<{ revisions: CodeRevision[] }>('GET', `/rooms/${roomId}/revisions`),
   createRevision: (roomId: string, input: { sourceCode: string; label: string; author: string; challengeId: string }) =>
     api<{ revision: CodeRevision }>('POST', `/rooms/${roomId}/revisions`, input),
@@ -147,5 +177,6 @@ export const debuggerApi = {
     api<{ report: RegressionReport }>('POST', `/rooms/${roomId}/regression`, opts),
   analyze: (roomId: string, input: { lastPassingId: string; firstFailingId: string; currentCode: string }) =>
     api<AnalyzeResponse>('POST', `/rooms/${roomId}/analyze`, input),
-  verify: (input: { challengeId: string; sourceCode: string; edits: PatchEdit[] }) => api<VerifyResponse>('POST', '/verify', input),
+  /** `analysisId` works everywhere; raw code + edits only on a server in local execution mode. */
+  verify: (input: { analysisId: string } | { challengeId: string; sourceCode: string; edits: PatchEdit[] }) => api<VerifyResponse>('POST', '/verify', input),
 };

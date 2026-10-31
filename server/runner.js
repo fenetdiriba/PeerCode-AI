@@ -151,3 +151,51 @@ export function createRunner({ timeoutMs = 8000, caseTimeoutMs = 1000, maxConcur
 
   return { runTests };
 }
+
+// Probe run in a child with the same flags as real test runs (minus the harness). Each check
+// must come back denied/empty for the runner to be considered constrained.
+const ISOLATION_PROBE = `
+const out = {};
+const denied = (fn) => { try { fn(); return false; } catch (e) { return e.code === 'ERR_ACCESS_DENIED'; } };
+out.fsWriteDenied = denied(() => require('node:fs').writeFileSync(require('node:os').tmpdir() + '/peercode-probe', 'x'));
+out.childProcessDenied = denied(() => require('node:child_process').execFileSync(process.execPath, ['-e', '0']));
+out.workerDenied = denied(() => new (require('node:worker_threads').Worker)('0', { eval: true }));
+out.envEmpty = Object.keys(process.env).length === 0;
+out.codegenDisabled = (() => { try { new Function('return 1')(); return false; } catch { return true; } })();
+process.stdout.write(JSON.stringify(out));
+`;
+
+/**
+ * Check that the child-process restrictions actually hold on this host (Node version, flags).
+ * Network is NOT checked or restricted; callers must not treat a pass as a sandbox.
+ * @returns {Promise<{ ok: boolean, nodeVersion: string, checks: Record<string, boolean>, error?: string }>}
+ */
+export function checkIsolation({ nodePath = process.execPath, timeoutMs = 5000 } = {}) {
+  return new Promise((resolve) => {
+    const done = (r) => resolve({ nodeVersion: process.version, ...r });
+    let child;
+    try {
+      child = spawn(nodePath, ['--permission', '--disallow-code-generation-from-strings', '-e', ISOLATION_PROBE], { env: {}, stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (err) {
+      return done({ ok: false, checks: {}, error: `spawn failed: ${err.message}` });
+    }
+    let stdout = '';
+    let stderr = '';
+    const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
+    child.stdout.on('data', (c) => (stdout += c));
+    child.stderr.on('data', (c) => (stderr += c));
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      done({ ok: false, checks: {}, error: err.message });
+    });
+    child.on('close', () => {
+      clearTimeout(timer);
+      try {
+        const checks = JSON.parse(stdout);
+        done({ ok: Object.values(checks).every(Boolean), checks });
+      } catch {
+        done({ ok: false, checks: {}, error: stderr.trim().split('\n').slice(-2).join(' ').slice(0, 300) || 'probe produced no output' });
+      }
+    });
+  });
+}

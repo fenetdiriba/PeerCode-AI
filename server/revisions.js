@@ -12,6 +12,8 @@ import path from 'node:path';
 export const ROOM_PATTERN = /^[a-z0-9-]{1,64}$/;
 export const MAX_SOURCE_CHARS = 50_000;
 export const MAX_REVISIONS_PER_ROOM = 200;
+/** Default cap on rooms with stored history, so a public server's disk can't be filled. */
+export const MAX_ROOMS = 2000;
 
 /** SHA-256 of the exact source text; used to detect identical code and live-document drift. */
 export const hashCode = (source) => createHash('sha256').update(source, 'utf8').digest('hex');
@@ -35,9 +37,9 @@ export function validateRevisionInput(body) {
 }
 
 /**
- * @param {{ dir?: string | null, now?: () => Date }} [options] dir = null keeps everything in memory
+ * @param {{ dir?: string | null, now?: () => Date, maxRooms?: number }} [options] dir = null keeps everything in memory
  */
-export function createRevisionStore({ dir = null, now = () => new Date() } = {}) {
+export function createRevisionStore({ dir = null, now = () => new Date(), maxRooms = MAX_ROOMS } = {}) {
   /** @type {Map<string, CodeRevision[]>} */
   const rooms = new Map();
   /** Per-room promise chain, so reads, appends and writes for a room never interleave. */
@@ -68,6 +70,17 @@ export function createRevisionStore({ dir = null, now = () => new Date() } = {})
     return list;
   }
 
+  /** Rooms that have history (on disk, or in memory without a dir). */
+  async function roomCount() {
+    if (!dir) return [...rooms.values()].filter((l) => l.length).length;
+    try {
+      return (await fs.readdir(dir)).filter((f) => f.endsWith('.json')).length;
+    } catch (err) {
+      if (err.code === 'ENOENT') return 0;
+      throw err;
+    }
+  }
+
   async function persist(roomId, list) {
     if (!dir) return;
     await fs.mkdir(dir, { recursive: true });
@@ -87,6 +100,9 @@ export function createRevisionStore({ dir = null, now = () => new Date() } = {})
     create: (roomId, { sourceCode, label = '', author = '', challengeId }) =>
       serialize(roomId, async () => {
         const list = await load(roomId);
+        if (list.length === 0 && (await roomCount()) >= maxRooms) {
+          throw Object.assign(new Error('This server has reached its limit of stored rooms.'), { status: 507 });
+        }
         if (list.length >= MAX_REVISIONS_PER_ROOM) {
           throw Object.assign(new Error(`This room has reached ${MAX_REVISIONS_PER_ROOM} checkpoints.`), { status: 409 });
         }

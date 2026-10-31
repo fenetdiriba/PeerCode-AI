@@ -7,6 +7,13 @@ services:
     buildCommand: npm ci
     startCommand: npm start
     healthCheckPath: /health
+    # Free Render disks are ephemeral: checkpoints reset on every deploy (use Railway + a volume to keep them).
     envVars:
+      - key: NODE_VERSION
+        value: "22"
       - key: ALLOWED_ORIGINS
+        sync: false
+      - key: MODEL_API_KEY
+        sync: false
+      - key: DEBUGGER_ACCESS_CODE
         sync: false

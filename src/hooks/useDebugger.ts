@@ -3,6 +3,7 @@ import { applyDecision } from '../../shared/patch-safety.js';
 import { minimalReplacement } from '../lib/ai';
 import { RoomSession } from '../lib/collab';
 import {
+  accessCode,
   AnalyzeResponse,
   ApiError,
   Challenge,
@@ -40,6 +41,8 @@ export function useDebugger(roomId: string, session: RoomSession | null, authorN
   const [challenges, setChallenges] = useState<Challenge[]>([]);
   const [challengeId, setChallengeId] = useState<string | null>(null);
   const [ai, setAi] = useState<{ available: boolean; model: string } | null>(null);
+  const [server, setServer] = useState<{ executionMode: 'restricted' | 'local'; executionAvailable: boolean; accessRequired: boolean } | null>(null);
+  const [needsAccessCode, setNeedsAccessCode] = useState(false);
   const [allRevisions, setAllRevisions] = useState<CodeRevision[]>([]);
   const [runs, setRuns] = useState<Record<string, RunSummary>>({});
   const [report, setReport] = useState<RegressionReport | null>(null);
@@ -60,9 +63,11 @@ export function useDebugger(roomId: string, session: RoomSession | null, authorN
   useEffect(() => {
     debuggerApi
       .challenges()
-      .then(({ challenges, ai }) => {
+      .then(({ challenges, ai, execution, access }) => {
         setChallenges(challenges);
         setAi(ai);
+        setServer({ executionMode: execution.mode, executionAvailable: execution.available, accessRequired: access.required });
+        setNeedsAccessCode(access.required && !accessCode.get());
         setServerError(null);
       })
       .catch((e: Error) => setServerError(e.message));
@@ -106,6 +111,7 @@ export function useDebugger(roomId: string, session: RoomSession | null, authorN
 
   const fail = (e: unknown) => {
     const err = e as ApiError;
+    if (err.code === 'access-code-required') setNeedsAccessCode(true);
     setError({ message: err.message, code: err.code });
   };
 
@@ -241,12 +247,13 @@ export function useDebugger(roomId: string, session: RoomSession | null, authorN
     }
   }, [roomId, challenge]);
 
+  /** Verify a server-issued analysis (`analysisId`), or explicit code + edits (local mode only). */
   const verify = useCallback(
-    async (edits: AnalyzeResponse['analysis']['edits'], sourceCode: string) => {
+    async (target: { analysisId: string } | { edits: AnalyzeResponse['analysis']['edits'] }, sourceCode: string) => {
       if (!challenge) return;
       setVerification({ status: 'running', sourceCode });
       try {
-        const res = await debuggerApi.verify({ challengeId: challenge.id, sourceCode, edits });
+        const res = await debuggerApi.verify('analysisId' in target ? target : { challengeId: challenge.id, sourceCode, edits: target.edits });
         setVerification({ status: 'done', sourceCode, patchedCode: res.patchedCode, run: res.run });
       } catch (e) {
         setVerification({ status: 'error', sourceCode, message: (e as Error).message });
@@ -270,7 +277,7 @@ export function useDebugger(roomId: string, session: RoomSession | null, authorN
       });
       setAnalysis(res);
       setBusy(null);
-      await verify(res.analysis.edits, currentCode);
+      await verify({ analysisId: res.analysisId }, currentCode);
     } catch (e) {
       fail(e);
     } finally {
@@ -279,7 +286,7 @@ export function useDebugger(roomId: string, session: RoomSession | null, authorN
   }, [report, ytext, roomId, verify]);
 
   const reverifyLive = useCallback(() => {
-    if (analysis && ytext) verify(analysis.analysis.edits, ytext.toString());
+    if (analysis && ytext) verify({ edits: analysis.analysis.edits }, ytext.toString());
   }, [analysis, ytext, verify]);
 
   const decision = useMemo(
@@ -324,9 +331,18 @@ export function useDebugger(roomId: string, session: RoomSession | null, authorN
     }
   }, [verification, ytext, challenge, replaceLive, roomId, analysis, authorName, announceTimelineChange, refresh]);
 
+  const saveAccessCode = (code: string) => {
+    accessCode.set(code);
+    setNeedsAccessCode(false);
+    setError(null);
+  };
+
   return {
     challenge,
     challenges,
+    server,
+    needsAccessCode,
+    saveAccessCode,
     selectChallenge,
     ai,
     serverError,

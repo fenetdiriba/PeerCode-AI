@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { CHALLENGES } from './challenges.js';
-import { compileSource, createRunner, parseHarnessOutput } from './runner.js';
+import { checkIsolation, compileSource, createRunner, parseHarnessOutput } from './runner.js';
 
 const cart = CHALLENGES['cart-total'];
 const runner = createRunner({ timeoutMs: 4000, caseTimeoutMs: 500 });
@@ -87,4 +87,13 @@ test('runner: a promise that never settles is a per-case timeout, not a hang', a
   const neverSettles = { ...cart, language: 'javascript', tests: [{ name: 'hangs', fn: 'calculateTotal', args: [], expected: 0 }] };
   const r = await runner.runTests('function calculateTotal() { return new Promise(() => {}); }', neverSettles);
   assert.deepEqual([r.status, r.errorKind], ['error', 'timeout']);
+});
+
+test('isolation self-check passes on this Node and fails without the permission model', async () => {
+  const ok = await checkIsolation();
+  assert.equal(ok.ok, true, JSON.stringify(ok));
+  assert.deepEqual(Object.values(ok.checks).every(Boolean), true);
+  // A "node" that ignores the flags (here: a shell that prints all-false) must fail the check.
+  const fake = await checkIsolation({ nodePath: '/bin/echo' });
+  assert.equal(fake.ok, false);
 });

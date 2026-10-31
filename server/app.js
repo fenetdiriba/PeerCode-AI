@@ -58,7 +58,7 @@ export function createApp({ allowedOrigins = [], maxConnectionsPerIp = 20, gener
 
     if (path === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, ai: Boolean(generate), queue: matchmaker.size, connections: wss.clients.size }));
+      res.end(JSON.stringify({ ok: true, ai: Boolean(generate), queue: matchmaker.size, connections: wss.clients.size, debugger: debugApi.status() }));
       return;
     }
 
@@ -77,7 +77,7 @@ export function createApp({ allowedOrigins = [], maxConnectionsPerIp = 20, gener
       if (req.method === 'OPTIONS') {
         res.writeHead(204, {
           'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type',
+          'Access-Control-Allow-Headers': 'Content-Type, X-PeerCode-Access',
           'Access-Control-Max-Age': '600',
         });
         res.end();

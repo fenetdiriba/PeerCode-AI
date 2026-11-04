@@ -57,7 +57,10 @@ const assert = require('assert');
   await a.waitForFunction(() => { const x = [...document.querySelectorAll('button')].find((y) => y.textContent.includes('Apply verified patch')); return x && !x.disabled; }, null, { timeout: 10000 });
   step('restricted mode: no re-verify of edited code; B undid the edit and apply re-enabled');
   await a.getByRole('button', { name: 'Apply verified patch' }).click();
-  await a.getByText(/Patch applied and checkpointed/).waitFor({ timeout: 15000 });
+  await a.getByText(/applied as checkpoint #6, re-tested: 8\/8 passed/).waitFor({ timeout: 30000 });
+  // The applied checkpoint carries its own re-test result without anyone clicking Run.
+  await a.locator('aside ol li').nth(5).getByText('8/8 passed').waitFor({ timeout: 10000 });
+  console.log('✓ applied checkpoint #6 auto re-tested: 8/8 (distinct from the verified copy)');
   await b.waitForTimeout(1000);
   const bText = await editorText(b);
   assert.match(bText, /\+\+latestRequest;/); // DOM line order isn't visual order in Monaco; content check only

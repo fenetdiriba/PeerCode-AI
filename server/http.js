@@ -47,15 +47,26 @@ export function readJson(req, maxBytes = 256 * 1024) {
   });
 }
 
-/** Sliding-window limiter: `limited(key)` records a hit and says whether it's over the limit. */
+/**
+ * Sliding-window limiter: `limited(key)` records a hit and says whether it's over the limit.
+ * Keys whose hits have all expired are pruned once per window, so the map doesn't grow with
+ * every IP that ever called.
+ */
 export function createRateLimiter({ max, windowMs, now = () => Date.now() }) {
   const hits = new Map(); // key -> timestamps
-  return (key) => {
+  let lastPrune = now();
+  const limited = (key) => {
     const t = now();
+    if (t - lastPrune >= windowMs) {
+      for (const [k, ts] of hits) if (!ts.some((x) => t - x < windowMs)) hits.delete(k);
+      lastPrune = t;
+    }
     const recent = (hits.get(key) ?? []).filter((ts) => t - ts < windowMs);
     const over = recent.length >= max;
     if (!over) recent.push(t);
     hits.set(key, recent);
     return over;
   };
+  limited.size = () => hits.size;
+  return limited;
 }

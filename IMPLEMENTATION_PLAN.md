@@ -1,5 +1,7 @@
 # PeerCodeAI: Time-Travel Debugger — Implementation Plan
 
+> **Historical document (written 2026-10-30 at the start of the build).** The blockers below were resolved later: the Meta API wire format was verified against the docs and the live API, and Muse Spark was evaluated in 30 real trials. For the current status see [README.md](README.md), [docs/EVALUATION.md](docs/EVALUATION.md) and [TASKS.md](TASKS.md).
+
 Deadline: 2026-11-04, 9:00 PM ET. Promise: *find the moment your code broke, understand why, fix it with proof.*
 
 ## 1. Audit findings (2026-10-30)

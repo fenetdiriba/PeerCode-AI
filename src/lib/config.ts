@@ -1,8 +1,8 @@
-// Where the browser finds the PeerCode server (signaling + matchmaking).
-// In production set one variable, VITE_SERVER_URL, to the deployed server,
-// e.g. https://peercode-server.up.railway.app. The per-service variables below
-// override it if you ever split signaling and matchmaking onto different hosts.
-
+// Where the browser finds the PeerCode server (signaling, relay, matchmaking, debugger API).
+// Pages served from localhost use the local server. Everywhere else the deployed Render server
+// is the default, so the live site works even without VITE_SERVER_URL. VITE_SERVER_URL (and the
+// per-service variables below) still override it, except values pointing at the retired Railway
+// deployment, which are ignored so a stale build setting can't break the site.
 const env = import.meta.env;
 
 /** Accept http(s):// or ws(s):// and return a WebSocket URL without a trailing slash. */
@@ -13,21 +13,27 @@ export function toWebSocketUrl(url: string): string {
     .replace(/\/+$/, '');
 }
 
-const SERVER_URL = toWebSocketUrl(env.VITE_SERVER_URL || 'ws://localhost:4444');
+const PRODUCTION_SERVER_URL = 'https://peercode-ai-rkzy.onrender.com';
+const RETIRED_HOST = /\.up\.railway\.app/i;
+/** A configured URL, unless it's empty or points at the retired Railway server. */
+const usable = (value: string | undefined) => (value && !RETIRED_HOST.test(value) ? value : undefined);
+const isLocalPage = typeof location !== 'undefined' && /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
 
-export const SIGNALING_URLS: string[] = (env.VITE_SIGNALING_URLS || SERVER_URL)
+const SERVER_URL = toWebSocketUrl(usable(env.VITE_SERVER_URL) ?? (isLocalPage ? 'ws://localhost:4444' : PRODUCTION_SERVER_URL));
+
+export const SIGNALING_URLS: string[] = (usable(env.VITE_SIGNALING_URLS) || SERVER_URL)
   .split(',')
   .map(toWebSocketUrl)
   .filter(Boolean);
 
-export const MATCHMAKING_URL = toWebSocketUrl(env.VITE_MATCHMAKING_URL || `${SERVER_URL}/match`);
+export const MATCHMAKING_URL = toWebSocketUrl(usable(env.VITE_MATCHMAKING_URL) || `${SERVER_URL}/match`);
 
 /** Base URL for the room relay fallback; the room name is appended. */
-export const RELAY_URL = toWebSocketUrl(env.VITE_RELAY_URL || `${SERVER_URL}/relay`);
+export const RELAY_URL = toWebSocketUrl(usable(env.VITE_RELAY_URL) || `${SERVER_URL}/relay`);
 
 /** Same server, over HTTP(S), for the AI hint endpoint. */
 const toHttpUrl = (url: string) => url.replace(/^ws(s?):\/\//i, 'http$1://');
-export const AI_HINT_URL = env.VITE_AI_URL || `${toHttpUrl(SERVER_URL)}/api/ai-hint`;
+export const AI_HINT_URL = usable(env.VITE_AI_URL) || `${toHttpUrl(SERVER_URL)}/api/ai-hint`;
 
 /** Base URL of the time-travel debugger API (checkpoints, tests, regression, Meta AI, verify). */
 export const DEBUGGER_API_URL = `${toHttpUrl(SERVER_URL)}/api`;

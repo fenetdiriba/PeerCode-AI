@@ -5,6 +5,7 @@ import {
   Check,
   ChevronDown,
   Copy,
+  History,
   Loader2,
   PanelRightClose,
   PanelRightOpen,
@@ -12,6 +13,7 @@ import {
   Share2,
   Sparkles,
 } from 'lucide-react';
+import { useDebugger } from '../hooks/useDebugger';
 import { useRoom } from '../hooks/useRoom';
 import { takePendingRoomLanguage } from '../lib/identity';
 import { getLanguage, LANGUAGES } from '../lib/languages';
@@ -19,10 +21,13 @@ import { runCode } from '../lib/runner';
 import { LanguageId, RunResult, UserProfile } from '../types';
 import ChatPanel from './ChatPanel';
 import CodeEditor from './CodeEditor';
+import DebuggerPanel from './DebuggerPanel';
 import Logo from './Logo';
 import OutputPanel from './OutputPanel';
 import PresencePanel from './PresencePanel';
 import StatusBar from './StatusBar';
+import TimelinePanel from './TimelinePanel';
+import TimeTravelView from './TimeTravelView';
 
 interface RoomViewProps {
   roomId: string;
@@ -59,7 +64,11 @@ export default function RoomView({ roomId, profile, onProfileChange, onLeave }: 
   const [notice, setNotice] = useState<string | null>(null);
   const [cursor, setCursor] = useState({ line: 1, column: 1 });
   const [aiOpenSignal, setAiOpenSignal] = useState(0);
+  const [debugMode, setDebugMode] = useState(() => window.matchMedia('(min-width: 1024px)').matches);
+  const [sideTab, setSideTab] = useState<'debugger' | 'people'>('debugger');
   const { copied, copy } = useCopied();
+  const dbg = useDebugger(roomId, session, profile.name, setLanguage);
+  const showDebugger = debugMode && sidebarOpen && sideTab === 'debugger';
 
   const lang = getLanguage(language);
 
@@ -131,6 +140,19 @@ export default function RoomView({ roomId, profile, onProfileChange, onLeave }: 
             <ChevronDown className="pointer-events-none absolute top-1/2 right-2 h-3.5 w-3.5 -translate-y-1/2 text-brand-text-muted" />
           </div>
           <button
+            onClick={() => {
+              setDebugMode((d) => !d);
+              setSidebarOpen(true);
+              setSideTab('debugger');
+            }}
+            className={`flex h-8 items-center gap-1.5 rounded-md border px-3 text-xs font-semibold transition-colors ${debugMode ? 'border-sky-500/50 bg-sky-600/25 text-sky-100' : 'border-brand-border text-neutral-300 hover:bg-white/5'}`}
+            title="Time-travel debugger: checkpoints, regression search, Meta AI fixes"
+            aria-pressed={debugMode}
+          >
+            <History className="h-3.5 w-3.5" />
+            <span className="hidden md:inline">Debugger</span>
+          </button>
+          <button
             onClick={() => setAiOpenSignal((n) => n + 1)}
             className="flex h-8 items-center gap-1.5 rounded-md border border-violet-500/40 bg-violet-600/15 px-3 text-xs font-semibold text-violet-200 transition-colors hover:bg-violet-600/30"
             title="Ask AI to edit code (Ctrl/Cmd + K)"
@@ -170,7 +192,16 @@ export default function RoomView({ roomId, profile, onProfileChange, onLeave }: 
       </header>
 
       <div className="relative flex min-h-0 flex-1">
+        {debugMode && <TimelinePanel dbg={dbg} />}
         <main className="flex min-w-0 flex-1 flex-col">
+          {debugMode && dbg.challenge && language !== dbg.challenge.language && dbg.view.kind === 'live' && (
+            <div className="flex items-center gap-2 border-b border-amber-500/30 bg-amber-500/[0.06] px-3 py-1.5 text-xs text-amber-200">
+              The debugger checkpoints the {dbg.challenge.language === 'typescript' ? 'TypeScript' : dbg.challenge.language} file.
+              <button onClick={() => setLanguage(dbg.challenge!.language)} className="rounded bg-amber-500/20 px-2 py-0.5 font-semibold hover:bg-amber-500/30">
+                Switch to it
+              </button>
+            </div>
+          )}
           {/* Language picker for small screens, where the navbar has no room for it */}
           <div className="flex items-center gap-2 border-b border-brand-border bg-[#111111] px-3 py-1.5 sm:hidden">
             <select
@@ -186,7 +217,13 @@ export default function RoomView({ roomId, profile, onProfileChange, onLeave }: 
               ))}
             </select>
           </div>
-          <div className="min-h-0 flex-1">
+          {debugMode && dbg.view.kind !== 'live' && (
+            <div className="min-h-0 flex-1">
+              <TimeTravelView dbg={dbg} />
+            </div>
+          )}
+          {/* The live editor stays mounted (hidden) during time travel, so its binding, cursor and undo history survive. */}
+          <div className={`min-h-0 flex-1 ${debugMode && dbg.view.kind !== 'live' ? 'hidden' : ''}`}>
             {session && (
               <CodeEditor
                 session={session}
@@ -204,9 +241,37 @@ export default function RoomView({ roomId, profile, onProfileChange, onLeave }: 
         </main>
 
         {sidebarOpen && (
-          <aside className="absolute inset-y-0 right-0 z-20 flex w-72 flex-col border-l border-brand-border bg-brand-surface shadow-2xl lg:static lg:shadow-none">
-            <PresencePanel peers={peers} onRename={(name) => onProfileChange({ ...profile, name })} />
-            <ChatPanel messages={messages} localClientId={session?.doc.clientID ?? -1} onSend={sendMessage} />
+          <aside
+            className={`absolute inset-y-0 right-0 z-20 flex flex-col border-l border-brand-border bg-brand-surface shadow-2xl lg:static lg:shadow-none ${debugMode ? 'w-[22rem]' : 'w-72'}`}
+          >
+            {debugMode && (
+              <div className="flex shrink-0 border-b border-brand-border text-xs" role="tablist">
+                {(
+                  [
+                    ['debugger', 'Debugger'],
+                    ['people', `People & chat${remoteCount ? ` (${remoteCount + 1})` : ''}`],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    role="tab"
+                    aria-selected={sideTab === id}
+                    onClick={() => setSideTab(id)}
+                    className={`flex-1 px-3 py-2 font-semibold ${sideTab === id ? 'border-b-2 border-sky-400 text-white' : 'text-brand-text-muted hover:text-white'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {showDebugger ? (
+              <DebuggerPanel dbg={dbg} />
+            ) : (
+              <>
+                <PresencePanel peers={peers} onRename={(name) => onProfileChange({ ...profile, name })} />
+                <ChatPanel messages={messages} localClientId={session?.doc.clientID ?? -1} onSend={sendMessage} />
+              </>
+            )}
           </aside>
         )}
       </div>

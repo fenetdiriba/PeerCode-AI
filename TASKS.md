@@ -1,0 +1,78 @@
+# TASKS
+
+Legend: `[x]` done and verified · `[~]` implemented, not fully verified · `[ ]` not started · `[!]` blocked
+
+## Phase 0: Audit
+- [x] Inspect repo, run tests/lint/build (30/30 tests, lint clean, build ok at start)
+- [x] IMPLEMENTATION_PLAN.md, TASKS.md
+
+## Phase 1: Foundation
+- [x] Fix the cold-cache `npm run dev` crash in rooms (Monaco workers vs Vite optimizer); prod build workers checked too
+- [x] Verify two-browser collaboration (Playwright, two isolated contexts, direct WebRTC)
+
+## Phase 2: Revisions
+- [x] Server revision store (JSON file per room, sequence numbers, SHA-256, atomic writes)
+- [x] REST: list / create / clear revisions
+- [x] Timeline UI + read-only time-travel diff (never writes the live doc; verified in browser)
+- [x] Collaborators see new checkpoints (Y.Doc counter → refetch; verified in browser)
+- [x] Tests: creation, exact reconstruction, concurrent ordering, persistence across instances
+
+## Phase 3: Regression detection
+- [x] Challenge fixture (cart total, TypeScript, 5 data-driven tests, 5-step demo history)
+- [x] Constrained runner (child process, permission model, empty env, heap cap, SIGKILL timeout)
+- [x] Result classification: passed / failed / error (compile, runtime, timeout, crash, infrastructure)
+- [x] Bisect + backward verification, non-monotonic flag, optional full linear scan
+- [x] UI: per-checkpoint test runs, locate, last-pass / first-fail, failing cases, diff
+- [x] Tests: parsing, detection, non-monotonic, infra errors, caching
+- [x] Benchmark: 64/64 correct on generated histories (docs/BENCHMARK.md)
+
+## Phase 4: Meta Muse Spark
+- [x] Wire format checked against https://dev.meta.ai/docs (auth, chat completions, errors) and the live API
+- [x] `server/meta.js`: key mode (`MODEL_API_KEY`) and injected mode (`META_AUTH=injected`, key added by an egress proxy / network secret)
+- [x] Prompt + strict schema validation + one retry with the validation error
+- [x] Errors: Meta's HTTP status + sanitized detail (key redacted) + a fix hint per failure
+- [x] **Real run 2026-10-31**: `META_AUTH=injected NODE_USE_ENV_PROXY=1 npm run smoke:meta`: connectivity OK, regression #3, valid patch on attempt 1, verified 5/5, applied, re-test 5/5
+- [x] Real run through the UI (two browsers): model `muse-spark-1.3`, verified, conflict blocked, re-verified, applied via Y.Doc, new checkpoint 5/5
+- [x] Strict `json_schema` structured output (ANALYSIS_SCHEMA), accepted by the live API; fallback to json_object on a schema 400
+- [x] Prompt lists the whole test suite with status, test notes, failing inputs and the trusted driver (fixes the false "not covered" claims)
+
+## Phase 4b: Harder challenge
+- [x] `search-race` (JavaScript): stale in-flight request after clearing the input, introduced by an extract-helper refactor at #3
+- [x] Harness: async test cases, trusted scenario driver, deferred promises, microtask flush (no timers); determinism checked (10 identical runs)
+- [x] Real Muse Spark: correct diagnosis, patch verified 8/8, applied, re-test 8/8 (smoke + two-browser UI with conflict)
+- [x] Challenge picker synced through the Y.Doc; regression search and demo reset scoped per challenge
+
+## Phase 5: Patch verification
+- [x] find/replace edits: unique match, no overlap, order-independent
+- [x] Verify endpoint (real tests on an isolated patched copy)
+- [x] Apply only if verified + passing + live == verified source (checked at click time); re-verify against live code
+- [x] Tests: apply, conflicts, HTTP pipeline (scripted model), wrong patch reported as failing
+- [x] Browser: conflict from the second browser blocks apply; re-verify, apply, both browsers updated, new checkpoint 5/5
+
+## Phase 6: Demo + docs
+- [x] One-click demo scenario (real checkpoints through the API; results not scripted)
+- [x] README: status, setup, demo script, architecture, trade-offs, safety, limitations
+- [x] Measured results with methodology (docs/BENCHMARK.md)
+- [x] Run the demo with the real Meta API (see Phase 4)
+- [x] Repeated real-Meta evaluation: 10/10 on both challenges (docs/EVALUATION.md)
+- [x] Hackathon kit (docs/HACKATHON.md), architecture (docs/ARCHITECTURE.md), README centered on the debugger
+- [x] Render Free prep: render.yaml, 0.0.0.0:$PORT, temp-dir checkpoints with startup check, TEST_CONCURRENCY, lost-history recovery, measured memory
+- [ ] Deploy on Render Free + redeploy Vercel frontend (needs the owner's Render/Vercel access; see DEPLOY.md)
+- [ ] Run e2e/ against the deployed URLs (needs the deployment above)
+- [ ] Demo video / screenshots for the submission
+
+## Phase 7: Public-server security
+- [x] Restricted execution mode by default: SHA-256 allowlist (scenario code + server-verified patches); visitor code never runs
+- [x] Analyze accepts only allowlisted code (no visitor text in prompts); verify only by server-issued analysisId
+- [x] Model edits screened for escape-style tokens (defense in depth)
+- [x] Startup isolation self-check (fs write, subprocess, worker, env, eval); execution disabled on failure
+- [x] Hosted guards: EXECUTION_MODE=local and META_AUTH=injected refused on Railway/Render
+- [x] Access code (timing-safe), origin allowlist, per-IP limits, global AI daily cap, room cap
+- [x] Node 22.x pinned; Railway volume auto-detected; /health reports the security posture
+- [x] Verified: 12 security tests, browser security check, deployed-API suite against production-like servers
+- [ ] Not done: network isolation of the runner (needs a container/microVM host)
+
+## Next (if time allows, in priority order)
+1. Real isolation for the runner (container with `--network none`, or a microVM)
+2. A second challenge (e.g. an off-by-one in pagination) to show the fixtures aren't cart-specific
+3. Share regression reports and analyses through the Y.Doc so both collaborators see them

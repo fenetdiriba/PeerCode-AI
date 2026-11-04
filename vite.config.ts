@@ -18,6 +18,11 @@ export default defineConfig(() => {
     define: {
       global: 'globalThis',
     },
+    // The room page is lazy-loaded; pre-bundle its heavy deps so a cold dev server doesn't
+    // discover them mid-load and force a reload.
+    optimizeDeps: {
+      include: ['monaco-editor', 'y-monaco', 'y-webrtc', 'yjs', 'y-protocols/awareness', 'sucrase'],
+    },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       hmr: process.env.DISABLE_HMR !== 'true',

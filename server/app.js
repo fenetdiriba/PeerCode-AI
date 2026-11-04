@@ -1,5 +1,6 @@
 // PeerCode AI server, one port:
 //   POST /api/ai-hint  AI code hints (Gemini), key stays on the server
+//   /api/...           time-travel debugger: checkpoints, tests, regression, Meta AI, verify (debugger.js)
 //   GET  /health       health check
 //   ws /match          matchmaking queue
 //   ws /relay/<room>   fallback relay for rooms whose peers can't connect directly (forwards, never stores)
@@ -7,8 +8,12 @@
 import http from 'node:http';
 import { WebSocketServer } from 'ws';
 import { createAiHint } from './ai.js';
+import { createDebugger } from './debugger.js';
+import { createMetaClient } from './meta.js';
 import { createMatchmaker } from './matchmaking.js';
 import { handleRelay } from './relay.js';
+import { createRevisionStore } from './revisions.js';
+import { createRunner } from './runner.js';
 import { handleSignaling } from './signaling.js';
 
 /** Turn "https://peercode-*.vercel.app" into a regex where * matches one hostname label. */
@@ -30,14 +35,22 @@ function clientIp(req) {
  *   maxConnectionsPerIp?: number,
  *   generate?: ((prompt: string) => Promise<string>) | null,
  *   aiRequestsPer10Min?: number,
+ *   debuggerDeps?: Partial<Parameters<typeof createDebugger>[0]>,
  * }} [options]
  */
-export function createApp({ allowedOrigins = [], maxConnectionsPerIp = 20, generate = null, aiRequestsPer10Min = 20 } = {}) {
+export function createApp({ allowedOrigins = [], maxConnectionsPerIp = 20, generate = null, aiRequestsPer10Min = 20, debuggerDeps = {} } = {}) {
   const originPatterns = allowedOrigins.map(originPattern);
   const originAllowed = (origin) => !originPatterns.length || originPatterns.some((re) => re.test(origin ?? ''));
 
   const matchmaker = createMatchmaker();
   const aiHint = createAiHint({ generate, maxRequests: aiRequestsPer10Min });
+  // Defaults keep checkpoints in memory and leave Meta AI unavailable; index.js configures both.
+  const debugApi = createDebugger({
+    store: createRevisionStore(),
+    runner: createRunner(),
+    model: createMetaClient({ apiKey: undefined }),
+    ...debuggerDeps,
+  });
   const connectionsByIp = new Map();
 
   const server = http.createServer((req, res) => {
@@ -45,12 +58,12 @@ export function createApp({ allowedOrigins = [], maxConnectionsPerIp = 20, gener
 
     if (path === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, ai: Boolean(generate), queue: matchmaker.size, connections: wss.clients.size }));
+      res.end(JSON.stringify({ ok: true, ai: Boolean(generate), queue: matchmaker.size, connections: wss.clients.size, debugger: debugApi.status() }));
       return;
     }
 
-    if (path === '/api/ai-hint') {
-      // The browser calls this cross-origin (Vercel -> Railway), so answer CORS for allowed sites only.
+    if (path.startsWith('/api/')) {
+      // The browser calls the API cross-origin (Vercel -> Railway), so answer CORS for allowed sites only.
       const origin = req.headers.origin;
       if (origin && !originAllowed(origin)) {
         res.writeHead(403, { 'Content-Type': 'application/json' });
@@ -63,20 +76,21 @@ export function createApp({ allowedOrigins = [], maxConnectionsPerIp = 20, gener
       }
       if (req.method === 'OPTIONS') {
         res.writeHead(204, {
-          'Access-Control-Allow-Methods': 'POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type',
+          'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, X-PeerCode-Access',
           'Access-Control-Max-Age': '600',
         });
         res.end();
         return;
       }
-      if (req.method !== 'POST') {
-        res.writeHead(405, { Allow: 'POST, OPTIONS' });
-        res.end();
-        return;
-      }
-      aiHint.handle(req, res, clientIp(req)).catch((err) => {
-        console.error('AI hint handler crashed:', err);
+      const handler =
+        path === '/api/ai-hint'
+          ? req.method === 'POST'
+            ? aiHint.handle(req, res, clientIp(req))
+            : (res.writeHead(405, { Allow: 'POST, OPTIONS' }), res.end(), Promise.resolve())
+          : debugApi.handle(req, res, path, clientIp(req));
+      handler.catch((err) => {
+        console.error('API handler crashed:', err);
         if (!res.headersSent) res.writeHead(500);
         res.end();
       });

@@ -68,7 +68,10 @@ const assert = require('assert');
   await a.getByRole('button', { name: 'Review patch' }).click();
   await a.getByText('Patch review · read-only').waitFor();
   await a.getByRole('button', { name: 'Apply verified patch' }).click();
-  await a.getByText(/Patch applied and checkpointed/).waitFor({ timeout: 15000 });
+  await a.getByText(/applied as checkpoint #6, re-tested: 5\/5 passed/).waitFor({ timeout: 30000 });
+  // The applied checkpoint carries its own re-test result without anyone clicking Run.
+  await a.locator('aside ol li').nth(5).getByText('5/5 passed').waitFor({ timeout: 10000 });
+  console.log('✓ applied checkpoint #6 auto re-tested: 5/5 (distinct from the verified copy)');
   await b.waitForTimeout(1000);
   const bText = await editorText(b);
   assert.match(bText, /item\.price \* item\.quantity/); step('patch applied for B too (through the shared Y.Doc)');

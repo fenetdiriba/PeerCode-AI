@@ -323,7 +323,8 @@ export function useDebugger(roomId: string, session: RoomSession | null, authorN
     try {
       replaceLive(verification.patchedCode);
       setView({ kind: 'live' });
-      await debuggerApi.createRevision(roomId, {
+      const verifiedRun = verification.run;
+      const { revision } = await debuggerApi.createRevision(roomId, {
         sourceCode: verification.patchedCode,
         label: `Apply verified patch (${analysis?.model ?? 'AI'})`,
         author: authorName,
@@ -334,7 +335,19 @@ export function useDebugger(roomId: string, session: RoomSession | null, authorN
       setReport(null);
       announceTimelineChange();
       await refresh();
-      setNotice('Patch applied and checkpointed. Run tests on the new checkpoint to confirm.');
+      // Verification ran on an isolated copy; re-test the checkpoint that now holds the applied
+      // code, so the timeline shows its own result instead of "not tested".
+      let retest = 'could not be re-tested';
+      try {
+        const { run } = await debuggerApi.testRevision(roomId, revision.id);
+        setRuns((r) => ({ ...r, [revision.id]: { ...run, run } }));
+        retest = run.status === 'error' ? `re-test error (${run.errorKind})` : `re-tested: ${run.passed}/${run.total} passed`;
+      } catch {
+        // Keep the applied checkpoint; the notice says the re-test didn't run.
+      }
+      setNotice(
+        `Patch verified on an isolated copy (${verifiedRun.passed}/${verifiedRun.total}), applied as checkpoint #${revision.sequenceNumber}, ${retest}.`,
+      );
     } catch (e) {
       fail(e);
     } finally {

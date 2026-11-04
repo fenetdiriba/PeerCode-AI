@@ -1,5 +1,7 @@
 # Muse Spark evaluation (real API)
 
+> **Combined: 30 real trials (15 per challenge, two runs on different days): 30/30 localized, 30/30 valid on the first attempt (0 fallbacks), 30/30 root cause named, 30/30 patches passed every predefined test and re-tested green after apply.** Run 2 is summarized at the end.
+
 **Date:** 2026-10-31 · **Model:** `muse-spark-1.3` via `https://api.meta.ai/v1/chat/completions` · **Structured output:** strict `json_schema` · **Server mode:** restricted (the public default)
 **Raw data:** [`docs/eval/meta-eval-2026-10-31T01-26-09.json`](eval/meta-eval-2026-10-31T01-26-09.json): every trial, model output, token count and request id.
 **Reproduce:** `npm run eval:meta -- --runs=5` (needs `MODEL_API_KEY`; costs about 26k tokens).
@@ -56,3 +58,23 @@ Other real runs the same day: four two-browser UI runs (cart 6.2 s / 2,300 token
 None among the 10 trials. Across all real runs today:
 - no API errors, schema rejections, invalid outputs, retries or verification failures;
 - the slowest analysis took 14.2 s.
+
+## Run 2 (2026-11-04): 10 more trials per challenge
+Same method and pipeline. **Raw data:** [`docs/eval/meta-eval-2026-11-04T04-20-15.json`](eval/meta-eval-2026-11-04T04-20-15.json).
+
+| | Shopping cart (TS) | Typeahead stale response (JS, async) |
+|---|---|---|
+| Regression localized correctly | 10/10 | 10/10 |
+| Valid structured answer on the 1st attempt / fallbacks | 10/10 / 0 | 10/10 / 0 |
+| Named the actual root cause | 10/10 | 10/10 |
+| Patch passed all predefined tests; applied checkpoint re-tested green | 10/10 | 10/10 |
+| Model latency (median, min–max) | 7.6 s (6.4–9.6 s) | 10.9 s (8.5–15.7 s) |
+| Tokens per analysis (median) / total | 2,131 (845 reasoning) / 21,929 | 3,255 (1,044 reasoning) / 32,273 |
+
+Manual review:
+- No uncertainty note claimed a covered case was untested.
+- None said "no uncertainty".
+- Patches were consistent: `* item.quantity` restored for the cart; `++latestRequest` or `latestRequest++` (equivalent here) in the blank-query branch for search.
+- Search latency was higher than in run 1 (median 10.9 s vs 7.0 s), so plan the live demo around about 10–15 s.
+
+**Cost:** at Meta's published `muse-spark-1.3` prices ($1.25 per 1M input, $4.25 per 1M output tokens), run 2's 54k tokens cost roughly $0.15.

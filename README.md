@@ -27,8 +27,8 @@ Most AI assistants explain the code you paste and hand back a suggestion. PeerCo
 |---|---|
 | Real-time two-browser editing (Yjs CRDT over WebRTC + relay) | Working; verified with Playwright in isolated browser contexts. |
 | Checkpoints, time travel, diffs | Working; survive page refreshes. On **Render Free** they're temporary (lost on restart, redeploy or spin-down) and **Load demo scenario** rebuilds either challenge. A host with a volume keeps them. |
-| Regression localization | Working; 64/64 on generated histories ([BENCHMARK](docs/BENCHMARK.md)); 10/10 on the real-API evaluation. |
-| Muse Spark analysis (`muse-spark-1.3`, strict `json_schema`) | Working with the real API: 10/10 valid on the first attempt, root cause named 10/10 ([EVALUATION](docs/EVALUATION.md)). |
+| Regression localization | Working; 64/64 on generated histories ([BENCHMARK](docs/BENCHMARK.md)); 30/30 on the real-API evaluation. |
+| Muse Spark analysis (`muse-spark-1.3`, strict `json_schema`) | Working with the real API: 30/30 valid on the first attempt, root cause named 30/30, every patch verified ([EVALUATION](docs/EVALUATION.md)). |
 | Isolated verification + conflict-safe apply | Working; unit, HTTP and two-browser tests against the real model. |
 | Public-server safety | Restricted execution (visitor code never runs), startup isolation self-check, access code, origin allowlist, AI daily cap. Outbound network from the runner is **not** blocked; see [Execution safety](#execution-safety). |
 | Deployment | Ready for **Render Free** ($0): `render.yaml`, tested from a clean clone with Render-like settings (security suite + real Muse Spark, ≤ 205 MB peak of 512 MB). **Not yet deployed**: needs your Render and Vercel setup ([DEPLOY.md](DEPLOY.md)). |

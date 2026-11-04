@@ -26,13 +26,13 @@ Two challenges ship: a TypeScript cart-total regression, and a JavaScript typeah
 | Runs whatever you send | The public server **never executes visitor-written code** (hash allowlist, self-checked runner) |
 
 ## Measured results (real API, not mocked)
-10 trials, 5 per challenge (see [EVALUATION.md](EVALUATION.md)):
-- regression localized 10/10;
-- valid schema-constrained answer on the first attempt 10/10, no fallbacks;
-- root cause named 10/10;
-- patch passed every predefined test 10/10, and applied checkpoints re-tested green 10/10;
-- median model latency 8.5 s (cart) and 7.0 s (async search);
-- about 2–3.5k tokens per analysis.
+30 trials, 15 per challenge across two days (see [EVALUATION.md](EVALUATION.md)):
+- regression localized 30/30;
+- valid schema-constrained answer on the first attempt 30/30, no fallbacks;
+- root cause named 30/30;
+- patch passed every predefined test 30/30, and applied checkpoints re-tested green 30/30;
+- median model latency about 7.5 s (cart) and 7–11 s (async search); max 15.7 s;
+- about 2–3.5k tokens per analysis, under 1 cent each.
 
 Caveat: these are two seeded bugs with generous context, so this shows reliability, not general debugging ability.
 
@@ -43,7 +43,7 @@ Setup beforehand:
 - the access code already entered;
 - *Load demo scenario* clicked.
 
-**Have a fallback ready:** a screen recording of the same run, in case the live API is slow (the observed maximum was 14 s).
+**Have a fallback ready:** a screen recording of the same run, in case the live API is slow (observed maximum 15.7 s).
 
 | Time | Do | Say |
 |---|---|---|
